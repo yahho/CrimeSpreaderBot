@@ -88,7 +88,7 @@ class MusicBot(discord.Client):
 
         self.osumode = False
         self.osuplaylist = None
-        self.osumdir = os.environ.get('osudir')
+        self.osumdir = None
         self.osulogon = False
 
         if not self.autoplaylist:
@@ -963,11 +963,11 @@ class MusicBot(discord.Client):
         else:
             self.osum = " ".join(leftover_args)
             self.osum = self.osum.strip(' ')
-            if self.osum == "オン":
+            if self.osum == "オン" or self.osum == "on":
                 self.osumode = True
                 res_mode = "有効"
                 return Response("osu!APL機能は{}に変更されました。".format(res_mode), delete_after=30)
-            elif self.osum == "オフ":
+            elif self.osum == "オフ" or self.osum == "off":
                 self.osumode = False
                 if self.osumode:
                     res_mode = "有効"
@@ -976,6 +976,17 @@ class MusicBot(discord.Client):
                 return Response("osu!APL機能は{}に変更されました。".format(res_mode), delete_after=30)
             else:
                 return Response("不正な引数です。", delete_after=30)
+
+    async def cmd_ステータス(self, player, message, channel, author, leftover_args):
+        embed = discord.Embed(title="ステータス", description="現在の栗目拡散器の状態はこの通りです。\nこの表示は開発中です。", color=0xdec049)
+        embed.set_author(name="yahho's 栗目拡散器", url='https://github.com/yahho/CrimeSpreaderBot', icon_url='https://cdn.discordapp.com/emojis/332181988633083925.png')
+        embed.add_field(name="ギルド別設定", value="未実装", inline=False)
+        embed.add_field(name="osu!譜面自動再生プレイリスト", value=["❌無効", "✅有効"][self.osumode], inline=True)
+        embed.add_field(name="自動再生プレイリスト", value=["❌無効", "✅有効"][self.config.auto_playlist], inline=True)
+        embed.add_field(name="音量", value=str(player.volume*100)+"%", inline=True)
+        embed.add_field(name="現在再生中の項目", value=[player.current_entry.title+"\n詳細はnpで", "何も再生していません。バグジョンの可能性もあります。"][len(player.current_entry.title)==0], inline=False)
+        embed.set_footer(text="再生が止ったときは再起させてみよう")
+        return await self.send_message(message.channel, embed=embed)
 
     async def cmd_osurelogin(self, message, channel, author):
         """
@@ -1467,7 +1478,7 @@ class MusicBot(discord.Client):
                 np_text = "再生中:projector:： **%s** :alarm_clock:%s\n" % (player.current_entry.title, prog_str)
 
             ourl = player.current_entry.url
-            if player.current_entry.title.startswith("[osu!譜面]"):
+            if ourl.startswith("http://osu.ppy.sh/s/"):
                 np_textn = "{}譜面のURL：{}".format(np_text, ourl)
             else:
                 np_textn = "{}栗目のURL：{}".format(np_text, ourl)
