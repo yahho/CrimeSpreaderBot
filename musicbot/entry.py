@@ -132,89 +132,97 @@ class URLPlaylistEntry(BasePlaylistEntry):
             return
 
         self._is_downloading = True
-        try:
-            # Ensure the folder that we're going to move into exists.
-            if not os.path.exists(self.download_folder):
-                os.makedirs(self.download_folder)
-
-            # self.expected_filename: audio_cache\youtube-9R8aSKwTEMg-NOMA_-_Brain_Power.m4a
-            extractor = os.path.basename(self.expected_filename).split('-')[0]
-
-            # the generic extractor requires special handling
-            if extractor == 'generic':
-                # print("Handling generic")
-                flistdir = [f.rsplit('-', 1)[0] for f in os.listdir(self.download_folder)]
-                expected_fname_noex, fname_ex = os.path.basename(self.expected_filename).rsplit('.', 1)
-
-                if expected_fname_noex in flistdir:
-                    try:
-                        rsize = int(await get_header(self.playlist.bot.aiosession, self.url, 'CONTENT-LENGTH'))
-                    except:
-                        rsize = 0
-
-                    lfile = os.path.join(
-                        self.download_folder,
-                        os.listdir(self.download_folder)[flistdir.index(expected_fname_noex)]
-                    )
-
-                    # print("Resolved %s to %s" % (self.expected_filename, lfile))
-                    lsize = os.path.getsize(lfile)
-                    # print("Remote size: %s Local size: %s" % (rsize, lsize))
-
-                    if lsize != rsize:
-                        await self._really_download(hash=True)
-                    else:
-                        # print("[Download] Cached:", self.url)
-                        self.filename = lfile
-
-                else:
-                    # print("File not found in cache (%s)" % expected_fname_noex)
-                    await self._really_download(hash=True)
-
-            else:
-                ldir = os.listdir(self.download_folder)
-                flistdir = [f.rsplit('.', 1)[0] for f in ldir]
-                expected_fname_base = os.path.basename(self.expected_filename)
-                expected_fname_noex = expected_fname_base.rsplit('.', 1)[0]
-
-                # idk wtf this is but its probably legacy code
-                # or i have youtube to blame for changing shit again
-
-                if expected_fname_base in ldir:
-                    self.filename = os.path.join(self.download_folder, expected_fname_base)
-                    print("[Download] Cached:", self.url)
-
-                elif expected_fname_noex in flistdir:
-                    print("[Download] Cached (different extension):", self.url)
-                    self.filename = os.path.join(self.download_folder, ldir[flistdir.index(expected_fname_noex)])
-                    print("Expected %s, got %s" % (
-                        self.expected_filename.rsplit('.', 1)[-1],
-                        self.filename.rsplit('.', 1)[-1]
-                    ))
-
-                else:
-                    await self._really_download()
-
-            # Trigger ready callbacks.
+        if self.url.startswith("https://osu.ppy.sh/"):
+            print("[osu!譜面再生機能]プレイリスト追加時に処理済みのはずです：%s" % self.url)
+            print("[osu!譜面再生機能]ファイル名：{}".format(self.expected_filename))
+            self.filename = self.expected_filename
             self._for_each_future(lambda future: future.set_result(self))
-
-        except Exception as e:
-            traceback.print_exc()
-            self._for_each_future(lambda future: future.set_exception(e))
-
-        finally:
             self._is_downloading = False
+
+        else:
+            try:
+                # Ensure the folder that we're going to move into exists.
+                if not os.path.exists(self.download_folder):
+                    os.makedirs(self.download_folder)
+
+                # self.expected_filename: audio_cache\youtube-9R8aSKwTEMg-NOMA_-_Brain_Power.m4a
+                extractor = os.path.basename(self.expected_filename).split('-')[0]
+
+                # the generic extractor requires special handling
+                if extractor == 'generic':
+                    # print("Handling generic")
+                    flistdir = [f.rsplit('-', 1)[0] for f in os.listdir(self.download_folder)]
+                    expected_fname_noex, fname_ex = os.path.basename(self.expected_filename).rsplit('.', 1)
+
+                    if expected_fname_noex in flistdir:
+                        try:
+                            rsize = int(await get_header(self.playlist.bot.aiosession, self.url, 'CONTENT-LENGTH'))
+                        except:
+                            rsize = 0
+
+                        lfile = os.path.join(
+                            self.download_folder,
+                            os.listdir(self.download_folder)[flistdir.index(expected_fname_noex)]
+                        )
+
+                        # print("Resolved %s to %s" % (self.expected_filename, lfile))
+                        lsize = os.path.getsize(lfile)
+                        # print("Remote size: %s Local size: %s" % (rsize, lsize))
+
+                        if lsize != rsize:
+                            await self._really_download(hash=True)
+                        else:
+                            # print("[ダウンロード] 保存済:", self.url)
+                            self.filename = lfile
+
+                    else:
+                        # print("キャッシュが見つかりませんでした (%s)" % expected_fname_noex)
+                        await self._really_download(hash=True)
+
+                else:
+                    ldir = os.listdir(self.download_folder)
+                    flistdir = [f.rsplit('.', 1)[0] for f in ldir]
+                    expected_fname_base = os.path.basename(self.expected_filename)
+                    expected_fname_noex = expected_fname_base.rsplit('.', 1)[0]
+
+                    # idk wtf this is but its probably legacy code
+                    # or i have youtube to blame for changing shit again
+
+                    if expected_fname_base in ldir:
+                        self.filename = os.path.join(self.download_folder, expected_fname_base)
+                        print("[ダウンロード] 保存済:", self.url)
+
+                    elif expected_fname_noex in flistdir:
+                        print("[ダウンロード] 保存済 (拡張子の変更あり):", self.url)
+                        self.filename = os.path.join(self.download_folder, ldir[flistdir.index(expected_fname_noex)])
+                        print("Expected %s, got %s" % (
+                            self.expected_filename.rsplit('.', 1)[-1],
+                            self.filename.rsplit('.', 1)[-1]
+                        ))
+
+                    else:
+                        await self._really_download()
+
+                # Trigger ready callbacks.
+                self._for_each_future(lambda future: future.set_result(self))
+
+            except Exception as e:
+                traceback.print_exc()
+                self._for_each_future(lambda future: future.set_exception(e))
+
+            finally:
+                self._is_downloading = False
 
     # noinspection PyShadowingBuiltins
     async def _really_download(self, *, hash=False):
-        print("[Download] Started:", self.url)
+        print("[ダウンロード] 開始します:", self.url)
 
         try:
             result = await self.playlist.downloader.extract_info(self.playlist.loop, self.url, download=True)
         except Exception as e:
             raise ExtractionError(e)
 
-        print("[Download] Complete:", self.url)
+        print("[ダウンロード] 完了しました:", self.url)
 
         if result is None:
             raise ExtractionError("ytdl broke and hell if I know why")

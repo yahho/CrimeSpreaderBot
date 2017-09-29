@@ -8,6 +8,9 @@ import aiohttp
 import discord
 import asyncio
 import traceback
+import urllib
+import re
+import requests
 
 from discord import utils
 from discord.object import Object
@@ -83,6 +86,11 @@ class MusicBot(discord.Client):
         self.init_ok = False
         self.cached_client_id = None
 
+        self.osumode = False
+        self.osuplaylist = None
+        self.osumdir = os.environ.get('osudir')
+        self.osulogon = False
+
         if not self.autoplaylist:
             print("Warning: Autoplaylist is empty, disabling.")
             self.config.auto_playlist = False
@@ -105,7 +113,7 @@ class MusicBot(discord.Client):
             if not orig_msg or orig_msg.author.id == self.config.owner_id:
                 return await func(self, *args, **kwargs)
             else:
-                raise exceptions.PermissionsError("only the owner can use this command", expire_in=30)
+                raise exceptions.PermissionsError("設置者専用コマンドです", expire_in=30)
 
         return wrapper
 
@@ -144,9 +152,9 @@ class MusicBot(discord.Client):
     async def _auto_summon(self):
         owner = self._get_owner(voice=True)
         if owner:
-            self.safe_print("Found owner in \"%s\", attempting to join..." % owner.voice_channel.name)
+            self.safe_print("オーナーを \"%s\"で発見, 参加しています..." % owner.voice_channel.name)
             # TODO: Effort
-            await self.cmd_summon(owner.voice_channel, owner, None)
+            await self.cmd_モ召喚(owner.voice_channel, owner, None)
             return owner.voice_channel
 
     async def _autojoin_channels(self, channels):
@@ -154,20 +162,20 @@ class MusicBot(discord.Client):
 
         for channel in channels:
             if channel.server in joined_servers:
-                print("Already joined a channel in %s, skipping" % channel.server.name)
+                print("私（たち）は %sにいます:musical_note:  というわけで無視" % channel.server.name)
                 continue
 
             if channel and channel.type == discord.ChannelType.voice:
-                self.safe_print("Attempting to autojoin %s in %s" % (channel.name, channel.server.name))
+                self.safe_print("%s の %s に参加しています・・・" % (channel.server.name, channel.name))
 
                 chperms = channel.permissions_for(channel.server.me)
 
                 if not chperms.connect:
-                    self.safe_print("Cannot join channel \"%s\", no permission." % channel.name)
+                    self.safe_print(" \"%s\"から弾かれたなり:kanashimi:  許可して下さいお願いしますなんかするわけではないけど" % channel.name)
                     continue
 
                 elif not chperms.speak:
-                    self.safe_print("Will not join channel \"%s\", no permission to speak." % channel.name)
+                    self.safe_print(" \"%s\"で黙ることを、**強いられているんだッ！！** " % channel.name)
                     continue
 
                 try:
@@ -183,7 +191,7 @@ class MusicBot(discord.Client):
                 except Exception as e:
                     if self.config.debug_mode:
                         traceback.print_exc()
-                    print("Failed to join", channel.name)
+                    print("参加に失敗しました。", channel.name)
 
             elif channel:
                 print("Not joining %s on %s, that's a text channel." % (channel.name, channel.server.name))
@@ -216,6 +224,12 @@ class MusicBot(discord.Client):
             self.cached_client_id = appinfo.id
 
         return discord.utils.oauth_url(self.cached_client_id, permissions=permissions, server=server)
+
+    def osu_apl(self):
+        files = os.listdir(self.config.osumdir)
+        numsl = ("1", "2", "3", "4", "5", "6", "7", "8", "9")
+        files_dir = [f for f in files if os.path.isdir(os.path.join(self.config.osumdir, f))  and f.startswith(numsl)]
+        return files_dir
 
     async def get_voice_client(self, channel):
         if isinstance(channel, Object):
@@ -252,27 +266,27 @@ class MusicBot(discord.Client):
             retries = 3
             for x in range(retries):
                 try:
-                    print("Attempting connection...")
+                    print("接続を確立しています・・・")
                     await asyncio.wait_for(voice_client.connect(), timeout=10, loop=self.loop)
-                    print("Connection established.")
+                    print("接続を確立しました。.")
                     break
                 except:
                     traceback.print_exc()
-                    print("Failed to connect, retrying (%s/%s)..." % (x+1, retries))
+                    print("接続に失敗しました。再試行中。。。 (%s/%s)..." % (x+1, retries))
                     await asyncio.sleep(1)
                     await self.ws.voice_state(server.id, None, self_mute=True)
                     await asyncio.sleep(1)
 
                     if x == retries-1:
                         raise exceptions.HelpfulError(
-                            "Cannot establish connection to voice chat.  "
-                            "Something may be blocking outgoing UDP connections.",
+                            "ボイスチャットへの接続を確立できません  "
+                            "何かUDPの上り接続をブロック、または重複しているものがないか確認して下さい。",
 
-                            "This may be an issue with a firewall blocking UDP.  "
-                            "Figure out what is blocking UDP and disable it.  "
-                            "It's most likely a system firewall or overbearing anti-virus firewall.  "
+                            "この問題はファイアウォールがUDP通信をブロックしていることによって発生することがあります。  "
+                            "利用しているファイアウォールのUDP通信の制限に関係する設定の確認と変更をお願いします。"
                         )
 
+            
             return voice_client
 
     async def mute_voice_client(self, channel, mute):
@@ -356,8 +370,8 @@ class MusicBot(discord.Client):
         if server.id not in self.players:
             if not create:
                 raise exceptions.CommandError(
-                    'The bot is not in a voice channel.  '
-                    'Use %ssummon to summon it to your voice channel.' % self.config.command_prefix)
+                    '絶っ対VCに参加してやるぜぇぇ！！\n   待ってろ:nubesco:ライフゥゥェァッッッ！！！  '
+                    '**もしかして** %ssummon を忘れてませんか？' % self.config.command_prefix)
 
             voice_client = await self.get_voice_client(channel)
 
@@ -393,10 +407,10 @@ class MusicBot(discord.Client):
                     break  # This is probably redundant
 
             if self.config.now_playing_mentions:
-                newmsg = '%s - your song **%s** is now playing in %s!' % (
+                newmsg = 'Hey %s. 追加した曲の **%s** が %sで絶賛垂れ流し中ですよ!:nubesco:' % (
                     entry.meta['author'].mention, entry.title, player.voice_client.channel.name)
             else:
-                newmsg = 'Now playing in %s: **%s**' % (
+                newmsg = '%sで再生中:projector: : **%s**' % (
                     player.voice_client.channel.name, entry.title)
 
             if self.server_specific_data[channel.server]['last_np_msg']:
@@ -414,7 +428,7 @@ class MusicBot(discord.Client):
         await self.update_now_playing()
 
     async def on_player_finished_playing(self, player, **_):
-        if not player.playlist.entries and not player.current_entry and self.config.auto_playlist:
+        if not player.playlist.entries and not player.current_entry and self.config.auto_playlist and not self.osumode:
             while self.autoplaylist:
                 song_url = choice(self.autoplaylist)
                 info = await self.downloader.safe_extract_info(player.playlist.loop, song_url, download=False, process=False)
@@ -439,19 +453,32 @@ class MusicBot(discord.Client):
                 break
 
             if not self.autoplaylist:
-                print("[Warning] No playable songs in the autoplaylist, disabling.")
+                print("[警告] 再生不可能なAPLです。設定は無効化されました。")
+                self.config.auto_playlist = False
+        elif not player.playlist.entries and not player.current_entry and self.config.auto_playlist and self.osumode:
+#            osu_apli = []
+#            osu_apli.append(self.osu_apl())
+            while self.osu_apl():
+                songdir = choice(self.osu_apl())
+                print(songdir)
+                await player.playlist.add_entry_raw(osz_id=None, songdir=songdir)
+                
+                break
+
+            if not self.osu_apl():
+                print("[警告] 再生不可能なAPLです。設定は無効化されました。osu!のSongsディレクトリを適切に設定したか確認して下さい。")
                 self.config.auto_playlist = False
 
     async def on_player_entry_added(self, playlist, entry, **_):
         pass
 
     async def update_now_playing(self, entry=None, is_paused=False):
-        game = None
+        game = discord.Game(name="ちょっとまってね・・・")
 
         if self.user.bot:
             activeplayers = sum(1 for p in self.players.values() if p.is_playing)
             if activeplayers > 1:
-                game = discord.Game(name="music on %s servers" % activeplayers)
+                game = discord.Game(name="現在、%s々所のサーバーで栗目" % activeplayers)
                 entry = None
 
             elif activeplayers == 1:
@@ -464,7 +491,7 @@ class MusicBot(discord.Client):
             name = u'{}{}'.format(prefix, entry.title)[:128]
             game = discord.Game(name=name)
 
-        await self.change_status(game)
+        await self.change_presence(game=game)
 
 
     async def safe_send_message(self, dest, content, *, tts=False, expire_in=0, also_delete=None, quiet=False):
@@ -593,40 +620,40 @@ class MusicBot(discord.Client):
             vc.main_ws = self.ws
 
     async def on_ready(self):
-        print('\rConnected!  Musicbot v%s\n' % BOTVERSION)
+        print('\rログイン完了！  Musicbot v%s\n' % BOTVERSION)
 
         if self.config.owner_id == self.user.id:
             raise exceptions.HelpfulError(
-                "Your OwnerID is incorrect or you've used the wrong credentials.",
+                "不正なオーナーIDが設定されています。  ",
 
-                "The bot needs its own account to function.  "
-                "The OwnerID is the id of the owner, not the bot.  "
-                "Figure out which one is which and use the correct information.")
+                "ボットは搭載された機能のためにこの情報を必要とします。  "
+                "オーナIDとはボット所有者のIDであり、ボットのIDではありません。  "
+                "混同しないよう正しい情報を設定して下さい。")
 
         self.init_ok = True
 
-        self.safe_print("Bot:   %s/%s#%s" % (self.user.id, self.user.name, self.user.discriminator))
+        self.safe_print("ボットの情報:   %s/%s#%s" % (self.user.id, self.user.name, self.user.discriminator))
 
         owner = self._get_owner(voice=True) or self._get_owner()
         if owner and self.servers:
-            self.safe_print("Owner: %s/%s#%s\n" % (owner.id, owner.name, owner.discriminator))
+            self.safe_print("オーナーの情報: %s/%s#%s\n" % (owner.id, owner.name, owner.discriminator))
 
-            print('Server List:')
+            print('アクセス可能なサーバー:')
             [self.safe_print(' - ' + s.name) for s in self.servers]
 
         elif self.servers:
-            print("Owner could not be found on any server (id: %s)\n" % self.config.owner_id)
+            print("オーナーをアクセス可能なサーバーから発見できませんでした (id: %s)\n" % self.config.owner_id)
 
-            print('Server List:')
+            print('アクセス可能なサーバー:')
             [self.safe_print(' - ' + s.name) for s in self.servers]
 
         else:
-            print("Owner unknown, bot is not on any servers.")
+            print("オーナーが不明です。ボットはどのサーバーでもアクセスできません。")
             if self.user.bot:
-                print("\nTo make the bot join a server, paste this link in your browser.")
-                print("Note: You should be logged into your main account and have \n"
-                      "manage server permissions on the server you want the bot to join.\n")
-                print("    " + await self.generate_invite_link())
+                print("\n以下のリンクにブラウザでアクセスし、ボットの接続を承認して下さい。")
+                print("注意: 追加したいサーバーのサーバー管理権限を所有するユーザーで \n"
+                      "ログインしている必要があります。\n")
+                print("    リンク：" + await self.generate_invite_link())
 
         print()
 
@@ -639,7 +666,7 @@ class MusicBot(discord.Client):
             chlist.difference_update(invalids)
             self.config.bound_channels.difference_update(invalids)
 
-            print("Bound to text channels:")
+            print("ボットに固定されたテキストチャンネル:")
             [self.safe_print(' - %s/%s' % (ch.server.name.strip(), ch.name.strip())) for ch in chlist if ch]
 
             if invalids and self.config.debug_mode:
@@ -649,7 +676,7 @@ class MusicBot(discord.Client):
             print()
 
         else:
-            print("Not bound to any text channels")
+            print("ボットに固定されたテキストチャンネルはありません")
 
         if self.config.autojoin_channels:
             chlist = set(self.get_channel(i) for i in self.config.autojoin_channels if i)
@@ -660,7 +687,7 @@ class MusicBot(discord.Client):
             chlist.difference_update(invalids)
             self.config.autojoin_channels.difference_update(invalids)
 
-            print("Autojoining voice chanels:")
+            print("自動接続設定されたボイスチャンネル:")
             [self.safe_print(' - %s/%s' % (ch.server.name.strip(), ch.name.strip())) for ch in chlist if ch]
 
             if invalids and self.config.debug_mode:
@@ -670,25 +697,26 @@ class MusicBot(discord.Client):
             autojoin_channels = chlist
 
         else:
-            print("Not autojoining any voice channels")
+            print("自動接続設定されたボイスチャンネルはありません。")
             autojoin_channels = set()
 
         print()
-        print("Options:")
+        print("設定情報:")
 
-        self.safe_print("  Command prefix: " + self.config.command_prefix)
-        print("  Default volume: %s%%" % int(self.config.default_volume * 100))
-        print("  Skip threshold: %s votes or %s%%" % (
+        self.safe_print("  メインコマンドプレフィックス: " + self.config.command_prefix)
+        self.safe_print("  サブコマンドプレフィックス: " + self.config.subcommand_prefix)
+        print("  標準の音量: %s%%" % int(self.config.default_volume * 100))
+        print("  スキップの条件: %s 票または %s%%の投票" % (
             self.config.skips_required, self._fixg(self.config.skip_ratio_required * 100)))
-        print("  Now Playing @mentions: " + ['Disabled', 'Enabled'][self.config.now_playing_mentions])
-        print("  Auto-Summon: " + ['Disabled', 'Enabled'][self.config.auto_summon])
-        print("  Auto-Playlist: " + ['Disabled', 'Enabled'][self.config.auto_playlist])
-        print("  Auto-Pause: " + ['Disabled', 'Enabled'][self.config.auto_pause])
-        print("  Delete Messages: " + ['Disabled', 'Enabled'][self.config.delete_messages])
+        print("  再生開始メンション: " + ['無効', '有効'][self.config.now_playing_mentions])
+        print("  自動参加: " + ['無効', '有効'][self.config.auto_summon])
+        print("  無リクエスト時に自動プレイリスト再生: " + ['無効', '有効'][self.config.auto_playlist])
+        print("  無人時に一時停止: " + ['無効', '有効'][self.config.auto_pause])
+        print("  ボットメッセージ削除: " + ['無効', '有効'][self.config.delete_messages])
         if self.config.delete_messages:
-            print("    Delete Invoking: " + ['Disabled', 'Enabled'][self.config.delete_invoking])
-        print("  Debug Mode: " + ['Disabled', 'Enabled'][self.config.debug_mode])
-        print("  Downloaded songs will be %s" % ['deleted', 'saved'][self.config.save_videos])
+            print("    コマンド利用者メッセージの削除: " + ['無効', '有効'][self.config.delete_invoking])
+        print("  デバッグモード: " + ['無効', '有効'][self.config.debug_mode])
+        print("  ダウンロードキャッシュを %s" % ['削除する', '保存する'][self.config.save_videos])
         print()
 
         # maybe option to leave the ownerid blank and generate a random command for the owner to use
@@ -696,26 +724,26 @@ class MusicBot(discord.Client):
 
         if not self.config.save_videos and os.path.isdir(AUDIO_CACHE_PATH):
             if self._delete_old_audiocache():
-                print("Deleting old audio cache")
+                print("古いキャッシュを削除しています・・・")
             else:
-                print("Could not delete old audio cache, moving on.")
+                print("古いキャッシュを削除できませんでした。")
 
         if self.config.autojoin_channels:
             await self._autojoin_channels(autojoin_channels)
 
         elif self.config.auto_summon:
-            print("Attempting to autosummon...", flush=True)
+            print("オーナーが参加中のボイスチャットに自動参加しています・・・", flush=True)
 
             # waitfor + get value
             owner_vc = await self._auto_summon()
 
             if owner_vc:
-                print("Done!", flush=True)  # TODO: Change this to "Joined server/channel"
+                print("成功しました！", flush=True)  # TODO: Change this to "Joined server/channel"
                 if self.config.auto_playlist:
-                    print("Starting auto-playlist")
+                    print("自動プレイリスト再生を開始します。。。")
                     await self.on_player_finished_playing(await self.get_player(owner_vc))
             else:
-                print("Owner not found in a voice channel, could not autosummon.")
+                print("オーナーが参加中のボイスチャンネルはありませんでした、自動参加に失敗しました。")
 
         print()
         # t-t-th-th-that's all folks!
@@ -725,9 +753,9 @@ class MusicBot(discord.Client):
         Usage:
             {command_prefix}help [command]
 
-        Prints a help message.
-        If a command is specified, it prints a help message for that command.
-        Otherwise, it lists the available commands.
+        ヘルプを表示するよ！
+        コマンド名称が指定された場合は該当するコマンドの説明が返されます。
+        それ以外では、ボットが持つコマンドをリストアップします。
         """
 
         if command:
@@ -741,30 +769,31 @@ class MusicBot(discord.Client):
                     delete_after=60
                 )
             else:
-                return Response("No such command", delete_after=10)
+                return Response("そんなコマンドあったっけ<:gaito88:257807307533058049>", delete_after=10)
 
         else:
-            helpmsg = "**Commands**\n```"
+            helpmsg = "**コマンド一覧**\n"
             commands = []
 
             for att in dir(self):
                 if att.startswith('cmd_') and att != 'cmd_help':
                     command_name = att.replace('cmd_', '').lower()
-                    commands.append("{}{}".format(self.config.command_prefix, command_name))
+                    commands.append("{}か{}で`{}`".format(self.config.command_prefix, self.config.subcommand_prefix, command_name))
 
             helpmsg += ", ".join(commands)
-            helpmsg += "```"
+            helpmsg += "\nこのBotは以下のサイトで公開されているBotを改造したものです\n"
             helpmsg += "https://github.com/SexualRhinoceros/MusicBot/wiki/Commands-list"
+            helpmsg += "\nコマンドの使い方がわからないときは{}または{}で`help [調べたいコマンド]`で調べられるぞ！<:kame:264244926311563265>".format(self.config.command_prefix, self.config.subcommand_prefix)
 
             return Response(helpmsg, reply=True, delete_after=60)
 
     async def cmd_blacklist(self, message, user_mentions, option, something):
         """
         Usage:
-            {command_prefix}blacklist [ + | - | add | remove ] @UserName [@UserName2 ...]
+            {プレフィックス}blacklist [ + | - | add | remove ] @ユーザー1 [@ユーザー2 ...]
 
-        Add or remove users to the blacklist.
-        Blacklisted users are forbidden from using bot commands.
+        指定したユーザーをブラックリストに追加、または除去を行います。
+        ボットはブラックリストに追加されたユーザーからのコマンドを拒絶します。
         """
 
         if not user_mentions:
@@ -808,9 +837,9 @@ class MusicBot(discord.Client):
     async def cmd_id(self, author, user_mentions):
         """
         Usage:
-            {command_prefix}id [@user]
+            {プレフィックス}id [@ユーザー]
 
-        Tells the user their id or the id of another user.
+        コマンド発行者や指定されたユーザーのIDを返します。
         """
         if not user_mentions:
             return Response('your id is `%s`' % author.id, reply=True, delete_after=35)
@@ -842,197 +871,351 @@ class MusicBot(discord.Client):
         except:
             raise exceptions.CommandError('Invalid URL provided:\n{}\n'.format(server_link), expire_in=30)
 
-    async def cmd_play(self, player, channel, author, permissions, leftover_args, song_url):
+    async def cmd_オート変更(self, message, channel, author, leftover_args):
         """
-        Usage:
-            {command_prefix}play song_link
-            {command_prefix}play text to search for
+        使い方：
+            {プレフィックス}オート変更 ファイルの相対位置（config下から）
+            {プレフィックス}オート変更 URL
+            {プレフィックス}オート変更（テキストファイル[.txt]添付）
+            
+            テキストファイル[.txt]のURLで変更ができるようになりました（多分）
+                注：テキストファイルの直リンク、またはそれに自動的にリダイレクトされるURLにして下さい
+            テキストファイル[.txt]の添付で変更ができます
+        """
+        
+        def apldl(apl_url):
+            file_name = apl_url.split("/")[-1]
+            res = requests.get(apl_url, stream=True)
+            if res.status_code == 200:
+                with open(file_name, 'wb') as file:
+                    for chunk in res.iter_content(chunk_size=1024):
+                        if chunk:
+                            file.write(chunk)
+                            file.flush()
+                    return file_name
+        
+        await self.send_typing(channel)
+        self.apl_file = None
+        self.apl_file = " ".join(leftover_args)
+        self.apl_file = self.apl_file.strip(' ')
 
-        Adds the song to the playlist.  If a link is not provided, the first
-        result from a youtube search is added to the queue.
+        if message.attachments:
+            apl_url = message.attachments[0]['url']
+            if  apl_url.split("/")[-1].split(".")[-1] != "txt":
+                raise exceptions.CommandError("この添付ファイル（リンク：{})は未対応のファイルです".format(apl_url))
+
+            self.config.auto_playlist_file = apldl(apl_url)
+            self.autoplaylist = load_file(self.config.auto_playlist_file)
+            return Response("オートプレイリストが{1.name}によって`{0}`に変更されました。".format(apl_url, author), delete_after=60)
+        elif self.apl_file.startswith("http://") or \
+             self.apl_file.startswith("https://"):
+            if  self.apl_file.split("/")[-1].split(".")[-1] != "txt":
+                raise exceptions.CommandError("このURL({})は現在未対応です".format(self.apl_file))
+            self.config.auto_playlist_file = apldl(self.apl_file)
+            self.autoplaylist = load_file(self.config.auto_playlist_file)
+            return Response("オートプレイリストが{1.name}によって`{0}`に変更されました。".format(apl_url, author), delete_after=60)
+        elif not len(self.apl_file):
+            raise exceptions.CommandError("引数を指定して下さい")
+        else:
+            if  self.apl_file.split(".")[-1] != "txt":
+                raise exceptions.CommandError("このファイル({})は未対応のファイルです".format(self.apl_file))
+            self.config.auto_playlist_file = 'config/{}'.format(self.apl_file)
+            self.autoplaylist = load_file(self.config.auto_playlist_file)
+            return Response("オートプレイリストが{1.name}によって{0}に変更されました。".format(self.config.auto_playlist_file, author), delete_after=60)
+
+    async def cmd_changeauto(self, message, channel, author, leftover_args):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_オート変更(message=message, channel=channel, author=author, leftover_args=leftover_args)
+
+
+    async def cmd_osuリログ(self, message, channel, author):
+        """
+        使い方:
+            <プレフィックス>osuリログ
+            
+            注：乱用しないで下さい
+            　　引数は必要ありません。
+            　　認証情報はボットのコンフィグに記載のものが使用されます。
         """
 
+        player.playlist.login()
+        return Response("ログイン処理を実行しました。:innocent:", delete_after=30)
+
+    async def cmd_osuモード(self, message, channel, author, leftover_args):
+        """
+        使い方:
+            <プレフィックス>osuモード [オン,オフ]
+            
+            
+            引数がなければ現在の設定を返します
+            指定された引数があれば有効化、無効化を行います
+        """
+        
+        if self.osumode:
+            res_mode = "有効"
+        else:
+            res_mode = "無効"
+
+        if not leftover_args:
+            return Response("現在のosu!APL機能は**{}**です。".format(res_mode), delete_after=30)
+        else:
+            self.osum = " ".join(leftover_args)
+            self.osum = self.osum.strip(' ')
+            if self.osum == "オン":
+                self.osumode = True
+                res_mode = "有効"
+                return Response("osu!APL機能は{}に変更されました。".format(res_mode), delete_after=30)
+            elif self.osum == "オフ":
+                self.osumode = False
+                if self.osumode:
+                    res_mode = "有効"
+                else:
+                    res_mode = "無効"
+                return Response("osu!APL機能は{}に変更されました。".format(res_mode), delete_after=30)
+            else:
+                return Response("不正な引数です。", delete_after=30)
+
+    async def cmd_osurelogin(self, message, channel, author):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_osuリログ(message=message, channel=channel, author=author)
+
+    async def cmd_osumode(self, message, channel, author, leftover_args):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_osuモード(message=message, channel=channel, author=author, leftover_args=leftover_args)
+
+    async def cmd_登録(self, player, channel, author, permissions, leftover_args, song_url):
+        """
+        使い方:
+            {command_prefix}登録 URL
+            {command_prefix}登録 検索ワード
+        """
+        
         song_url = song_url.strip('<>')
 
         if permissions.max_songs and player.playlist.count_for_user(author) >= permissions.max_songs:
             raise exceptions.PermissionsError(
-                "You have reached your enqueued song limit (%s)" % permissions.max_songs, expire_in=30
+                "栗目大杉なので弾かれましたよ。上限: (%s)" % permissions.max_songs, expire_in=30
             )
 
         await self.send_typing(channel)
 
-        if leftover_args:
-            song_url = ' '.join([song_url, *leftover_args])
+        if song_url.startswith('https://osu.ppy.sh/'):
+            if song_url.startswith('https://osu.ppy.sh/b/'):
+                raise exceptions.CommandError("譜面単体のリンクは未対応です。譜面セットのリンクを指定して下さい。", expire_in=30)
+#            if not self.osulogon:
+#                player.playlist.login()
+#                self.osulogon = True
 
-        try:
-            info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
-        except Exception as e:
-            raise exceptions.CommandError(e, expire_in=30)
-
-        if not info:
-            raise exceptions.CommandError("That video cannot be played.", expire_in=30)
-
-        # abstract the search handling away from the user
-        # our ytdl options allow us to use search strings as input urls
-        if info.get('url', '').startswith('ytsearch'):
-            # print("[Command:play] Searching for \"%s\"" % song_url)
-            info = await self.downloader.extract_info(
-                player.playlist.loop,
-                song_url,
-                download=False,
-                process=True,    # ASYNC LAMBDAS WHEN
-                on_error=lambda e: asyncio.ensure_future(
-                    self.safe_send_message(channel, "```\n%s\n```" % e, expire_in=120), loop=self.loop),
-                retry_on_error=True
-            )
-
-            if not info:
-                raise exceptions.CommandError(
-                    "Error extracting info from search string, youtubedl returned no data.  "
-                    "You may need to restart the bot if this continues to happen.", expire_in=30
-                )
-
-            if not all(info.get('entries', [])):
-                # empty list, no data
-                return
-
-            song_url = info['entries'][0]['webpage_url']
-            info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
-            # Now I could just do: return await self.cmd_play(player, channel, author, song_url)
-            # But this is probably fine
-
-        # TODO: Possibly add another check here to see about things like the bandcamp issue
-        # TODO: Where ytdl gets the generic extractor version with no processing, but finds two different urls
-
-        if 'entries' in info:
-            # I have to do exe extra checks anyways because you can request an arbitrary number of search results
-            if not permissions.allow_playlists and ':search' in info['extractor'] and len(info['entries']) > 1:
-                raise exceptions.PermissionsError("You are not allowed to request playlists", expire_in=30)
-
-            # The only reason we would use this over `len(info['entries'])` is if we add `if _` to this one
-            num_songs = sum(1 for _ in info['entries'])
-
-            if permissions.max_playlist_length and num_songs > permissions.max_playlist_length:
-                raise exceptions.PermissionsError(
-                    "Playlist has too many entries (%s > %s)" % (num_songs, permissions.max_playlist_length),
-                    expire_in=30
-                )
-
-            # This is a little bit weird when it says (x + 0 > y), I might add the other check back in
-            if permissions.max_songs and player.playlist.count_for_user(author) + num_songs > permissions.max_songs:
-                raise exceptions.PermissionsError(
-                    "Playlist entries + your already queued songs reached limit (%s + %s > %s)" % (
-                        num_songs, player.playlist.count_for_user(author), permissions.max_songs),
-                    expire_in=30
-                )
-
-            if info['extractor'].lower() in ['youtube:playlist', 'soundcloud:set', 'bandcamp:album']:
-                try:
-                    return await self._cmd_play_playlist_async(player, channel, author, permissions, song_url, info['extractor'])
-                except exceptions.CommandError:
-                    raise
-                except Exception as e:
-                    traceback.print_exc()
-                    raise exceptions.CommandError("Error queuing playlist:\n%s" % e, expire_in=30)
-
-            t0 = time.time()
-
-            # My test was 1.2 seconds per song, but we maybe should fudge it a bit, unless we can
-            # monitor it and edit the message with the estimated time, but that's some ADVANCED SHIT
-            # I don't think we can hook into it anyways, so this will have to do.
-            # It would probably be a thread to check a few playlists and get the speed from that
-            # Different playlists might download at different speeds though
-            wait_per_song = 1.2
-
-            procmesg = await self.safe_send_message(
-                channel,
-                'Gathering playlist information for {} songs{}'.format(
-                    num_songs,
-                    ', ETA: {} seconds'.format(self._fixg(
-                        num_songs * wait_per_song)) if num_songs >= 10 else '.'))
-
-            # We don't have a pretty way of doing this yet.  We need either a loop
-            # that sends these every 10 seconds or a nice context manager.
-            await self.send_typing(channel)
-
-            # TODO: I can create an event emitter object instead, add event functions, and every play list might be asyncified
-            #       Also have a "verify_entry" hook with the entry as an arg and returns the entry if its ok
-
-            entry_list, position = await player.playlist.import_from(song_url, channel=channel, author=author)
-
-            tnow = time.time()
-            ttime = tnow - t0
-            listlen = len(entry_list)
-            drop_count = 0
-
-            if permissions.max_song_length:
-                for e in entry_list.copy():
-                    if e.duration > permissions.max_song_length:
-                        player.playlist.entries.remove(e)
-                        entry_list.remove(e)
-                        drop_count += 1
-                        # Im pretty sure there's no situation where this would ever break
-                        # Unless the first entry starts being played, which would make this a race condition
-                if drop_count:
-                    print("Dropped %s songs" % drop_count)
-
-            print("Processed {} songs in {} seconds at {:.2f}s/song, {:+.2g}/song from expected ({}s)".format(
-                listlen,
-                self._fixg(ttime),
-                ttime / listlen,
-                ttime / listlen - wait_per_song,
-                self._fixg(wait_per_song * num_songs))
-            )
-
-            await self.safe_delete_message(procmesg)
-
-            if not listlen - drop_count:
-                raise exceptions.CommandError(
-                    "No songs were added, all songs were over max duration (%ss)" % permissions.max_song_length,
-                    expire_in=30
-                )
-
-            reply_text = "Enqueued **%s** songs to be played. Position in queue: %s"
-            btext = str(listlen - drop_count)
-
-        else:
-            if permissions.max_song_length and info.get('duration', 0) > permissions.max_song_length:
-                raise exceptions.PermissionsError(
-                    "Song duration exceeds limit (%s > %s)" % (info['duration'], permissions.max_song_length),
-                    expire_in=30
-                )
-
-            try:
-                entry, position = await player.playlist.add_entry(song_url, channel=channel, author=author)
-
-            except exceptions.WrongEntryTypeError as e:
-                if e.use_url == song_url:
-                    print("[Warning] Determined incorrect entry type, but suggested url is the same.  Help.")
-
-                if self.config.debug_mode:
-                    print("[Info] Assumed url \"%s\" was a single entry, was actually a playlist" % song_url)
-                    print("[Info] Using \"%s\" instead" % e.use_url)
-
-                return await self.cmd_play(player, channel, author, permissions, leftover_args, e.use_url)
-
-            reply_text = "Enqueued **%s** to be played. Position in queue: %s"
+            osz_id = song_url[21:len(song_url)]
+            busymsg = await self.safe_send_message(channel, "[**試験機能**]osu!譜面セットのリンク：**{}** の処理を開始しました:arrows_counterclockwise:\nこの処理は時間がかかるためBotの接続が一時的に切断されます。".format(song_url))
+#            try:
+            entry, position = await player.playlist.add_entry_raw(osz_id=osz_id, channel=channel, author=author)
+#            except:
+#                raise exceptions.CommandError("なんか栗目したかも", expire_in=30)
+            await self.safe_delete_message(busymsg)
+            reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
             btext = entry.title
 
-        if position == 1 and player.is_stopped:
-            position = 'Up next!'
-            reply_text %= (btext, position)
+            if position == 1 and player.is_stopped:
+                position = ':white_check_mark:すぐに再生されるよ！'
+                reply = reply_text.format(btext, position)
 
+            else:
+                try:
+                    time_until = await player.playlist.estimate_time_until(position, player)
+                    reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<:passive:347538399600836608>'
+                except:
+                    traceback.print_exc()
+                    time_until = ''
+
+                reply = reply_text.format(btext, position, time_until)
+            return Response(reply, delete_after=30)
         else:
+            if leftover_args:
+                song_url = ' '.join([song_url, *leftover_args])
+
             try:
-                time_until = await player.playlist.estimate_time_until(position, player)
-                reply_text += ' - estimated time until playing: %s'
-            except:
-                traceback.print_exc()
-                time_until = ''
+                info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
+            except Exception as e:
+                raise exceptions.CommandError(e, expire_in=30)
 
-            reply_text %= (btext, position, time_until)
+            if not info:
+                raise exceptions.CommandError("それは栗目過ぎて再生できません", expire_in=30)
 
-        return Response(reply_text, delete_after=30)
+            # abstract the search handling away from the user
+            # our ytdl options allow us to use search strings as input urls
+            if info.get('url', '').startswith('ytsearch'):
+                # print("[Command:play] Searching for \"%s\"" % song_url)
+                info = await self.downloader.extract_info(
+                    player.playlist.loop,
+                    song_url,
+                    download=False,
+                    process=True,    # ASYNC LAMBDAS WHEN
+                    on_error=lambda e: asyncio.ensure_future(
+                        self.safe_send_message(channel, "```\n%s\n```" % e, expire_in=120), loop=self.loop),
+                    retry_on_error=True
+                )
+
+                if not info:
+                    raise exceptions.CommandError(
+                        "Error extracting info from search string, youtubedl returned no data.  "
+                        "You may need to restart the bot if this continues to happen.", expire_in=30
+                    )
+
+                if not all(info.get('entries', [])):
+                    # empty list, no data
+                    return
+
+                song_url = info['entries'][0]['webpage_url']
+                info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
+                # Now I could just do: return await self.cmd_play(player, channel, author, song_url)
+                # But this is probably fine
+
+            # TODO: Possibly add another check here to see about things like the bandcamp issue
+            # TODO: Where ytdl gets the generic extractor version with no processing, but finds two different urls
+
+            if 'entries' in info:
+                # I have to do exe extra checks anyways because you can request an arbitrary number of search results
+                if not permissions.allow_playlists and ':search' in info['extractor'] and len(info['entries']) > 1:
+                    raise exceptions.PermissionsError("You are not allowed to request playlists", expire_in=30)
+
+                # The only reason we would use this over `len(info['entries'])` is if we add `if _` to this one
+                num_songs = sum(1 for _ in info['entries'])
+
+                if permissions.max_playlist_length and num_songs > permissions.max_playlist_length:
+                    raise exceptions.PermissionsError(
+                        "Playlist has too many entries (%s > %s)" % (num_songs, permissions.max_playlist_length),
+                        expire_in=30
+                    )
+
+                # This is a little bit weird when it says (x + 0 > y), I might add the other check back in
+                if permissions.max_songs and player.playlist.count_for_user(author) + num_songs > permissions.max_songs:
+                    raise exceptions.PermissionsError(
+                        "Playlist entries + your already queued songs reached limit (%s + %s > %s)" % (
+                            num_songs, player.playlist.count_for_user(author), permissions.max_songs),
+                        expire_in=30
+                    )
+
+                if info['extractor'].lower() in ['youtube:playlist', 'soundcloud:set', 'bandcamp:album']:
+                    try:
+                        return await self._cmd_play_playlist_async(player, channel, author, permissions, song_url, info['extractor'])
+                    except exceptions.CommandError:
+                        raise
+                    except Exception as e:
+                        traceback.print_exc()
+                        raise exceptions.CommandError("Error queuing playlist:\n%s" % e, expire_in=30)
+
+                t0 = time.time()
+
+                # My test was 1.2 seconds per song, but we maybe should fudge it a bit, unless we can
+                # monitor it and edit the message with the estimated time, but that's some ADVANCED SHIT
+                # I don't think we can hook into it anyways, so this will have to do.
+                # It would probably be a thread to check a few playlists and get the speed from that
+                # Different playlists might download at different speeds though
+                wait_per_song = 1.2
+
+                procmesg = await self.safe_send_message(
+                    channel,
+                    'Gathering playlist information for {} songs{}'.format(
+                        num_songs,
+                        ', ETA: {} seconds'.format(self._fixg(
+                            num_songs * wait_per_song)) if num_songs >= 10 else '.'))
+
+                # We don't have a pretty way of doing this yet.  We need either a loop
+                # that sends these every 10 seconds or a nice context manager.
+                await self.send_typing(channel)
+
+                # TODO: I can create an event emitter object instead, add event functions, and every play list might be asyncified
+                #       Also have a "verify_entry" hook with the entry as an arg and returns the entry if its ok
+
+                entry_list, position = await player.playlist.import_from(song_url, channel=channel, author=author)
+
+                tnow = time.time()
+                ttime = tnow - t0
+                listlen = len(entry_list)
+                drop_count = 0
+
+                if permissions.max_song_length:
+                    for e in entry_list.copy():
+                        if e.duration > permissions.max_song_length:
+                            player.playlist.entries.remove(e)
+                            entry_list.remove(e)
+                            drop_count += 1
+                            # Im pretty sure there's no situation where this would ever break
+                            # Unless the first entry starts being played, which would make this a race condition
+                    if drop_count:
+                        print("Dropped %s songs" % drop_count)
+
+                print("Processed {} songs in {} seconds at {:.2f}s/song, {:+.2g}/song from expected ({}s)".format(
+                    listlen,
+                    self._fixg(ttime),
+                    ttime / listlen,
+                    ttime / listlen - wait_per_song,
+                    self._fixg(wait_per_song * num_songs))
+                )
+
+                await self.safe_delete_message(procmesg)
+
+                if not listlen - drop_count:
+                    raise exceptions.CommandError(
+                        "No songs were added, all songs were over max duration (%ss)" % permissions.max_song_length,
+                        expire_in=30
+                    )
+
+                reply_text = "誰だ**%s**個も栗目を入れたクライミストは！！お陰で%s番目になっちまったよ:ginnan:"
+                btext = str(listlen - drop_count)
+
+            else:
+                if permissions.max_song_length and info.get('duration', 0) > permissions.max_song_length:
+                    raise exceptions.PermissionsError(
+                        "Song duration exceeds limit (%s > %s)" % (info['duration'], permissions.max_song_length),
+                        expire_in=30
+                    )
+
+                try:
+                    entry, position = await player.playlist.add_entry(song_url, channel=channel, author=author)
+
+                except exceptions.WrongEntryTypeError as e:
+                    if e.use_url == song_url:
+                        print("[Warning] Determined incorrect entry type, but suggested url is the same.  Help.")
+
+                    if self.config.debug_mode:
+                        print("[Info] Assumed url \"%s\" was a single entry, was actually a playlist" % song_url)
+                        print("[Info] Using \"%s\" instead" % e.use_url)
+
+                    return await self.cmd_play(player, channel, author, permissions, leftover_args, e.use_url)
+
+                reply_text = " **%s**を登録したぞ<:terminus:286837427182764032>  この栗目は: %s"
+                btext = entry.title
+
+            if position == 1 and player.is_stopped:
+                position = ':white_check_mark:すぐに再生されるよ！'
+                reply_text %= (btext, position)
+
+            else:
+                try:
+                    time_until = await player.playlist.estimate_time_until(position, player)
+                    reply_text += ' :alarm_clock:%s後に再生される予定だァァァ！！'
+                except:
+                    traceback.print_exc()
+                    time_until = ''
+
+                reply_text %= (btext, position, time_until)
+
+            return Response(reply_text, delete_after=30)
+
+    async def cmd_play(self, player, channel, author, permissions, leftover_args, song_url):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_登録(player=player, channel=channel, author=author, permissions=permissions, leftover_args=leftover_args, song_url=song_url)
+
 
     async def _cmd_play_playlist_async(self, player, channel, author, permissions, playlist_url, extractor_type):
         """
@@ -1049,7 +1232,7 @@ class MusicBot(discord.Client):
         t0 = time.time()
 
         busymsg = await self.safe_send_message(
-            channel, "Processing %s songs..." % num_songs)  # TODO: From playlist_title
+            channel, "%s個の栗目を処理中:arrows_counterclockwise: :innocent:" % num_songs)  # TODO: From playlist_title
         await self.send_typing(channel)
 
         entries_added = 0
@@ -1125,7 +1308,7 @@ class MusicBot(discord.Client):
 
             raise exceptions.CommandError(basetext, expire_in=30)
 
-        return Response("Enqueued {} songs to be played in {} seconds".format(
+        return Response("<:zakuro:310053103338651648>誰だ<:trump:245811283373326336>{}個も:chestnut: :eye: を入れたクライミストは<:nubesco:257184784344809473>！！お陰で{}秒もかかっちまったじゃねえか<:gaito88:257807307533058049>マジ<:ginnan:284978139350827009>".format(
             songs_added, self._fixg(ttime, 1)), delete_after=30)
 
     async def cmd_search(self, player, channel, author, permissions, leftover_args):
@@ -1221,6 +1404,7 @@ class MusicBot(discord.Client):
                 m.content.lower()[0] in 'yn' or
                 # hardcoded function name weeee
                 m.content.lower().startswith('{}{}'.format(self.config.command_prefix, 'search')) or
+                m.content.lower().startswith('{}{}'.format(self.config.subcommand_prefix, 'search')) or
                 m.content.lower().startswith('exit'))
 
         for e in info['entries']:
@@ -1237,6 +1421,7 @@ class MusicBot(discord.Client):
 
             # They started a new search query so lets clean up and bugger off
             elif response_message.content.startswith(self.config.command_prefix) or \
+                    response_message.content.startswith(self.config.subcommand_prefix) or \
                     response_message.content.lower().startswith('exit'):
 
                 await self.safe_delete_message(result_message)
@@ -1258,12 +1443,12 @@ class MusicBot(discord.Client):
 
         return Response("Oh well :frowning:", delete_after=30)
 
-    async def cmd_np(self, player, channel, server, message):
+    async def cmd_現在(self, player, channel, server, message):
         """
         Usage:
-            {command_prefix}np
+            {command_prefix}現在
 
-        Displays the current song in chat.
+        今再生している栗目を表示します
         """
 
         if player.current_entry:
@@ -1276,29 +1461,41 @@ class MusicBot(discord.Client):
             prog_str = '`[%s/%s]`' % (song_progress, song_total)
 
             if player.current_entry.meta.get('channel', False) and player.current_entry.meta.get('author', False):
-                np_text = "Now Playing: **%s** added by **%s** %s\n" % (
+                np_text = "再生中:projector:： **%s**  :u7533:**%s** :alarm_clock:%s\n" % (
                     player.current_entry.title, player.current_entry.meta['author'].name, prog_str)
             else:
-                np_text = "Now Playing: **%s** %s\n" % (player.current_entry.title, prog_str)
+                np_text = "再生中:projector:： **%s** :alarm_clock:%s\n" % (player.current_entry.title, prog_str)
 
-            self.server_specific_data[server]['last_np_msg'] = await self.safe_send_message(channel, np_text)
+            ourl = player.current_entry.url
+            if player.current_entry.title.startswith("[osu!譜面]"):
+                np_textn = "{}譜面のURL：{}".format(np_text, ourl)
+            else:
+                np_textn = "{}栗目のURL：{}".format(np_text, ourl)
+
+            self.server_specific_data[server]['last_np_msg'] = await self.safe_send_message(channel, np_textn)
             await self._manual_delete_check(message)
         else:
             return Response(
-                'There are no songs queued! Queue something with {}play.'.format(self.config.command_prefix),
+                'キューに何もありません。{}登録で栗目を追加できます。'.format(self.config.command_prefix),
                 delete_after=30
             )
 
-    async def cmd_summon(self, channel, author, voice_channel):
+    async def cmd_np(self, player, channel, server, message):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_現在(player=player, channel=channel, server=server, message=message)
+
+    async def cmd_ﾓ召喚(self, channel, author, voice_channel):
         """
         Usage:
-            {command_prefix}summon
+            {command_prefix}ﾓ召喚
 
-        Call the bot to the summoner's voice channel.
+        ﾎﾓは全く関係ないですが栗目Botをサモンします（_何がサーモンをサモンじゃ！_）
         """
 
         if not author.voice_channel:
-            raise exceptions.CommandError('You are not in a voice channel!')
+            raise exceptions.CommandError('いや、あんた今VCやってないでしょ？')
 
         voice_client = self.the_voice_clients.get(channel.server.id, None)
         if voice_client and voice_client.channel.server == author.voice_channel.server:
@@ -1330,40 +1527,58 @@ class MusicBot(discord.Client):
         if self.config.auto_playlist:
             await self.on_player_finished_playing(player)
 
-    async def cmd_pause(self, player):
+    async def cmd_summon(self, channel, author, voice_channel):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_ﾓ召喚(channel=channel, author=author, voice_channel=voice_channel)
+
+    async def cmd_待った(self, player):
         """
         Usage:
-            {command_prefix}pause
+            {command_prefix}待った
 
-        Pauses playback of the current song.
+        栗目で疲れたあなたに。再開を発行するまで待ってくれます
         """
 
         if player.is_playing:
             player.pause()
 
         else:
-            raise exceptions.CommandError('Player is not playing.', expire_in=30)
+            raise exceptions.CommandError(':boom: なんすか？そもそも今うるさくないですよね（半ギレ', expire_in=30)
 
-    async def cmd_resume(self, player):
+    async def cmd_pause(self, player):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        await self.cmd_待った(player=player)
+
+    async def cmd_再開(self, player):
         """
         Usage:
-            {command_prefix}resume
+            {command_prefix}再開
 
-        Resumes playback of a paused song.
+        待ったをかけたものの再生を再開します
         """
 
         if player.is_paused:
             player.resume()
 
         else:
-            raise exceptions.CommandError('Player is not paused.', expire_in=30)
+            raise exceptions.CommandError(':boom:一時停止されていません', expire_in=30)
 
-    async def cmd_shuffle(self, channel, player):
+    async def cmd_resume(self, player):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        await self.cmd_再開(player=player)
+
+    async def cmd_混ぜ(self, channel, player):
         """
         Usage:
-            {command_prefix}shuffle
+            {command_prefix}混ぜ
 
-        Shuffles the playlist.
+        リストをごちゃ混ぜにします
         """
 
         player.playlist.shuffle()
@@ -1380,27 +1595,40 @@ class MusicBot(discord.Client):
         await self.safe_delete_message(hand, quiet=True)
         return Response(":ok_hand:", delete_after=15)
 
-    async def cmd_clear(self, player, author):
+    async def cmd_shuffle(self, channel, player):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_混ぜ(channel=channel, player=player)
+
+    async def cmd_リスト掃除(self, player, author):
         """
         Usage:
-            {command_prefix}clear
+            {command_prefix}リスト掃除
 
-        Clears the playlist.
+        名前のとおりです
         """
 
         player.playlist.clear()
         return Response(':put_litter_in_its_place:', delete_after=20)
 
-    async def cmd_skip(self, player, channel, author, message, permissions, voice_channel):
+    async def cmd_clear(self, player, author):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_リスト掃除(player=player, author=author)
+
+    async def cmd_ｲ次(self, player, channel, author, message, permissions, voice_channel):
         """
         Usage:
-            {command_prefix}skip
+            {command_prefix}ｲ次
 
-        Skips the current song when enough votes are cast, or by the bot owner.
+        あまりにも栗目なものが再生されたりして飛ばしたいときに発行して下さい
+        投票や、オーナー権限で発動します
         """
 
         if player.is_stopped:
-            raise exceptions.CommandError("Can't skip! The player is not playing!", expire_in=20)
+            raise exceptions.CommandError(":u7121:を飛ばせとは？", expire_in=20)
 
         if not player.current_entry:
             if player.playlist.peek():
@@ -1439,10 +1667,10 @@ class MusicBot(discord.Client):
         if skips_remaining <= 0:
             player.skip()  # check autopause stuff here
             return Response(
-                'your skip for **{}** was acknowledged.'
-                '\nThe vote to skip has been passed.{}'.format(
+                ':heart:あなたの **{}** に対するスキップ投票を受理しました。'
+                '\n:white_check_mark:投票の結果スキップが決定しました。{}'.format(
                     player.current_entry.title,
-                    ' Next song coming up!' if player.playlist.peek() else ''
+                    ':arrows_counterclockwize: 間もなく次の栗目が来ます！' if player.playlist.peek() else ''
                 ),
                 reply=True,
                 delete_after=20
@@ -1451,27 +1679,33 @@ class MusicBot(discord.Client):
         else:
             # TODO: When a song gets skipped, delete the old x needed to skip messages
             return Response(
-                'your skip for **{}** was acknowledged.'
-                '\n**{}** more {} required to vote to skip this song.'.format(
+                ':heart:あなたの **{}** に対するスキップ投票を受理しました。'
+                '\n:mega:あと**{}** {} スキップ投票が必要です'.format(
                     player.current_entry.title,
                     skips_remaining,
-                    'person is' if skips_remaining == 1 else 'people are'
+                    '人（あと一息！）の' if skips_remaining == 1 else '人（頑張って！）の'
                 ),
                 reply=True,
                 delete_after=20
             )
 
-    async def cmd_volume(self, message, player, new_volume=None):
+    async def cmd_skip(self, player, channel, author, message, permissions, voice_channel):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        await self.cmd_ｲ次(player=player, channel=channel, author=author, message=message, permissions=permissions, voice_channel=voice_channel)
+
+    async def cmd_ﾜ度(self, message, player, new_volume=None):
         """
         Usage:
-            {command_prefix}volume (+/-)[volume]
+            {command_prefix}ﾜ度 (+/-)[音量]
 
-        Sets the playback volume. Accepted values are from 1 to 100.
-        Putting + or - before the volume will make the volume change relative to the current volume.
+        栗目Botの音量を変更します。1～100で指定して下さい
+        ＋や－を入れると相対的な指定が可能です（現在の音量から[音量]上げる/下げる）
         """
 
         if not new_volume:
-            return Response('Current volume: `%s%%`' % int(player.volume * 100), reply=True, delete_after=20)
+            return Response(':loudspeaker:現在のﾎﾜ度: `%s%%`' % int(player.volume * 100), reply=True, delete_after=20)
 
         relative = False
         if new_volume[0] in '+-':
@@ -1481,7 +1715,7 @@ class MusicBot(discord.Client):
             new_volume = int(new_volume)
 
         except ValueError:
-            raise exceptions.CommandError('{} is not a valid number'.format(new_volume), expire_in=20)
+            raise exceptions.CommandError(':boom:  {} は不正なﾎﾜ度です'.format(new_volume), expire_in=20)
 
         if relative:
             vol_change = new_volume
@@ -1492,7 +1726,7 @@ class MusicBot(discord.Client):
         if 0 < new_volume <= 100:
             player.volume = new_volume / 100.0
 
-            return Response('updated volume from %d to %d' % (old_volume, new_volume), reply=True, delete_after=20)
+            return Response(':loudspeaker:ﾎﾜ度を%dから%dに、変更したドォォォン！！' % (old_volume, new_volume), reply=True, delete_after=20)
 
         else:
             if relative:
@@ -1503,17 +1737,23 @@ class MusicBot(discord.Client):
                 raise exceptions.CommandError(
                     'Unreasonable volume provided: {}%. Provide a value between 1 and 100.'.format(new_volume), expire_in=20)
 
-    async def cmd_queue(self, channel, player):
+    async def cmd_volume(self, message, player, new_volume=None):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_ﾜ度(message=message, player=player, new_volume=new_volume)
+
+    async def cmd_リスト(self, channel, player):
         """
         Usage:
-            {command_prefix}queue
+            {command_prefix}リスト
 
-        Prints the current song queue.
+        リストに登録されたものを表示します
         """
 
         lines = []
         unlisted = 0
-        andmoretext = '* ... and %s more*' % ('x' * len(player.playlist.entries))
+        andmoretext = '* ... と %s 個の登録*' % ('x' * len(player.playlist.entries))
 
         if player.current_entry:
             song_progress = str(timedelta(seconds=player.progress)).lstrip('0').lstrip(':')
@@ -1521,16 +1761,16 @@ class MusicBot(discord.Client):
             prog_str = '`[%s/%s]`' % (song_progress, song_total)
 
             if player.current_entry.meta.get('channel', False) and player.current_entry.meta.get('author', False):
-                lines.append("Now Playing: **%s** added by **%s** %s\n" % (
-                    player.current_entry.title, player.current_entry.meta['author'].name, prog_str))
+                lines.append("再生中:projector:: **%s** が追加した **%s** :alarm_clock:%s\n" % (
+                     player.current_entry.meta['author'].name, player.current_entry.title, prog_str))
             else:
-                lines.append("Now Playing: **%s** %s\n" % (player.current_entry.title, prog_str))
+                lines.append("再生中:projector:: **%s** :alarm_clock:%s\n" % (player.current_entry.title, prog_str))
 
         for i, item in enumerate(player.playlist, 1):
             if item.meta.get('channel', False) and item.meta.get('author', False):
-                nextline = '`{}.` **{}** added by **{}**'.format(i, item.title, item.meta['author'].name).strip()
+                nextline = ':hash:`{}` :film_frames:**{}**  :u7533:**{}**'.format(i, item.title, item.meta['author'].name).strip()
             else:
-                nextline = '`{}.` **{}**'.format(i, item.title).strip()
+                nextline = ':hash:`{}` :film_frames:**{}**'.format(i, item.title).strip()
 
             currentlinesum = sum(len(x) + 1 for x in lines)  # +1 is for newline char
 
@@ -1542,21 +1782,27 @@ class MusicBot(discord.Client):
             lines.append(nextline)
 
         if unlisted:
-            lines.append('\n*... and %s more*' % unlisted)
+            lines.append('\n*... そして %s つの栗目たち*' % unlisted)
 
         if not lines:
             lines.append(
-                'There are no songs queued! Queue something with {}play.'.format(self.config.command_prefix))
+                'リストに何もありませんよ？ なんか入れるには {}登録、または{}登録しよう。'.format(self.config.command_prefix, self.config.subcommand_prefix))
 
         message = '\n'.join(lines)
         return Response(message, delete_after=30)
 
-    async def cmd_clean(self, message, channel, server, author, search_range=50):
+    async def cmd_queue(self, channel, player):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_リスト(channel=channel, player=player)
+
+    async def cmd_ﾜﾎﾜｳﾙｾｰ(self, message, channel, server, author, search_range=50):
         """
         Usage:
-            {command_prefix}clean [range]
+            {command_prefix}ﾜﾎﾜｳﾙｾｰ [範囲]
 
-        Removes up to [range] messages the bot has posted in chat. Default: 50, Max: 1000
+        [範囲] で指定した数の栗目Botの発言を消します デフォルト: 50, 最大: 1000
         """
 
         try:
@@ -1569,7 +1815,7 @@ class MusicBot(discord.Client):
 
         def is_possible_command_invoke(entry):
             valid_call = any(
-                entry.content.startswith(prefix) for prefix in [self.config.command_prefix])  # can be expanded
+                entry.content.startswith(prefix) for prefix in [self.config.command_prefix, self.config.subcommand_prefix])  # can be expanded
             return valid_call and not entry.content[1:2].isspace()
 
         delete_invokes = True
@@ -1609,10 +1855,16 @@ class MusicBot(discord.Client):
 
         return Response('Cleaned up {} message{}.'.format(deleted, 's' * bool(deleted)), delete_after=15)
 
-    async def cmd_pldump(self, channel, song_url):
+    async def cmd_clean(self, message, channel, server, author, search_range=50):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_ﾜﾎﾜｳﾙｾｰ(message=message, channel=channel, server=server, author=author, search_range=search_range)
+
+    async def cmd_プレイリスト抽出(self, channel, song_url):
         """
         Usage:
-            {command_prefix}pldump url
+            {command_prefix}プレイリスト抽出 URL
 
         Dumps the individual urls of a playlist
         """
@@ -1654,43 +1906,49 @@ class MusicBot(discord.Client):
 
         return Response(":mailbox_with_mail:", delete_after=20)
 
-    async def cmd_listids(self, server, author, leftover_args, cat='all'):
+    async def cmd_pldump(self, channel, song_url):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_プレイリスト抽出(channel=channel, song_url=song_url)
+
+    async def cmd_id列挙(self, server, author, leftover_args, cat='全て'):
         """
         Usage:
-            {command_prefix}listids [categories]
+            {command_prefix}id列挙 [カテゴリ]
 
-        Lists the ids for various things.  Categories are:
-           all, users, roles, channels
+        様々なIDを列挙します。 カテゴリは次のとおりです:
+           全て, ユーザー, 役職, チャンネル
         """
 
-        cats = ['channels', 'roles', 'users']
+        cats = ['チャンネル', '役職', 'ユーザー']
 
-        if cat not in cats and cat != 'all':
+        if cat not in cats and cat != '全て':
             return Response(
-                "Valid categories: " + ' '.join(['`%s`' % c for c in cats]),
+                "利用可能なカテゴリ: " + ' '.join(['`%s`' % c for c in cats]),
                 reply=True,
                 delete_after=25
             )
 
-        if cat == 'all':
+        if cat == '全て':
             requested_cats = cats
         else:
             requested_cats = [cat] + [c.strip(',') for c in leftover_args]
 
-        data = ['Your ID: %s' % author.id]
+        data = ['あなたのID: %s' % author.id]
 
         for cur_cat in requested_cats:
             rawudata = None
 
-            if cur_cat == 'users':
+            if cur_cat == 'ユーザー':
                 data.append("\nUser IDs:")
                 rawudata = ['%s #%s: %s' % (m.name, m.discriminator, m.id) for m in server.members]
 
-            elif cur_cat == 'roles':
+            elif cur_cat == '役職':
                 data.append("\nRole IDs:")
                 rawudata = ['%s: %s' % (r.name, r.id) for r in server.roles]
 
-            elif cur_cat == 'channels':
+            elif cur_cat == 'チャンネル':
                 data.append("\nText Channel IDs:")
                 tchans = [c for c in server.channels if c.type == discord.ChannelType.text]
                 rawudata = ['%s: %s' % (c.name, c.id) for c in tchans]
@@ -1711,13 +1969,18 @@ class MusicBot(discord.Client):
 
         return Response(":mailbox_with_mail:", delete_after=20)
 
+    async def cmd_listids(self, server, author, leftover_args, cat='全て'):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_id列挙(server=server, author=author, leftover_args=leftover_args, cat=cat)
 
-    async def cmd_perms(self, author, channel, server, permissions):
+    async def cmd_権限(self, author, channel, server, permissions):
         """
         Usage:
-            {command_prefix}perms
+            {command_prefix}権限
 
-        Sends the user a list of their permissions.
+        サーバーにいるユーザーの権限を表示します
         """
 
         lines = ['Command permissions in %s\n' % server.name, '```', '```']
@@ -1731,15 +1994,21 @@ class MusicBot(discord.Client):
         await self.send_message(author, '\n'.join(lines))
         return Response(":mailbox_with_mail:", delete_after=20)
 
+    async def cmd_perms(self, author, channel, server, permissions):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_権限(author=author, channel=channel, server=server, permissions=permissions)
+
 
     @owner_only
-    async def cmd_setname(self, leftover_args, name):
+    async def cmd_ネーム変更(self, leftover_args, name):
         """
         Usage:
-            {command_prefix}setname name
+            {command_prefix}ネーム変更 名前
 
-        Changes the bot's username.
-        Note: This operation is limited by discord to twice per hour.
+        ボットのユーザー名を更新します
+        注意: この操作はDiscordの仕様上、1時間以内に複数回行うことはできません
         """
 
         name = ' '.join([name, *leftover_args])
@@ -1752,12 +2021,20 @@ class MusicBot(discord.Client):
         return Response(":ok_hand:", delete_after=20)
 
     @owner_only
-    async def cmd_setnick(self, server, channel, leftover_args, nick):
+    async def cmd_setname(self, leftover_args, name):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_ネーム変更(leftover_args=leftover_args, name=name)
+
+
+    @owner_only
+    async def cmd_命名(self, server, channel, leftover_args, nick):
         """
         Usage:
-            {command_prefix}setnick nick
+            {command_prefix}命名 名前
 
-        Changes the bot's nickname.
+        Botのニックネームを変更します
         """
 
         if not channel.permissions_for(server.me).change_nickname:
@@ -1773,13 +2050,20 @@ class MusicBot(discord.Client):
         return Response(":ok_hand:", delete_after=20)
 
     @owner_only
-    async def cmd_setavatar(self, message, url=None):
+    async def cmd_setnick(self, server, channel, leftover_args, nick):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_命名(server=server, channel=channel, leftover_args=leftover_args, nick=nick)
+
+    @owner_only
+    async def cmd_アバター画像設定(self, message, url=None):
         """
         Usage:
-            {command_prefix}setavatar [url]
+            {プレフィックス}アバター画像設定 [URL]
 
-        Changes the bot's avatar.
-        Attaching a file and leaving the url parameter blank also works.
+        ボットのアバター画像を更新します。
+        画像を添付することも可能で、その場合はURLを省略できます。
         """
 
         if message.attachments:
@@ -1793,31 +2077,58 @@ class MusicBot(discord.Client):
                     await self.edit_profile(avatar=await res.read())
 
         except Exception as e:
-            raise exceptions.CommandError("Unable to change avatar: %s" % e, expire_in=20)
+            raise exceptions.CommandError("このアバターに変更できません: %s" % e, expire_in=20)
 
         return Response(":ok_hand:", delete_after=20)
 
+    @owner_only
+    async def cmd_setavater(self, message, url=None):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_アバター画像設定(message=message, url=url)
 
-    async def cmd_disconnect(self, server):
+
+    async def cmd_切断(self, server):
         await self.disconnect_voice_client(server)
         return Response(":hear_no_evil:", delete_after=20)
 
-    async def cmd_restart(self, channel):
+    async def cmd_disconnect(self, server):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_切断(server=server)
+
+    async def cmd_再起(channel):
         await self.safe_send_message(channel, ":wave:")
         await self.disconnect_all_voice_clients()
         raise exceptions.RestartSignal
 
-    async def cmd_shutdown(self, channel):
+    async def cmd_restart(self, channel):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        await self.cmd_再起(channel=channel)
+
+    async def cmd_あぼーん(self, channel):
         await self.safe_send_message(channel, ":wave:")
         await self.disconnect_all_voice_clients()
         raise exceptions.TerminateSignal
+
+    async def cmd_shutdown(self, channel):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        await self.cmd_あぼーん(channel=channel)
 
     async def on_message(self, message):
         await self.wait_until_ready()
 
         message_content = message.content.strip()
         if not message_content.startswith(self.config.command_prefix):
-            return
+            if not message_content.startswith(self.config.subcommand_prefix):
+                return
+            pass
 
         if message.author == self.user:
             self.safe_print("Ignoring command from myself (%s)" % message.content)
@@ -1827,27 +2138,29 @@ class MusicBot(discord.Client):
             return  # if I want to log this I just move it under the prefix check
 
         command, *args = message_content.split()  # Uh, doesn't this break prefixes with spaces in them (it doesn't, config parser already breaks them)
-        command = command[len(self.config.command_prefix):].lower().strip()
+        acommand = command[len(self.config.command_prefix):].lower().strip()
+        subcommand = command[len(self.config.subcommand_prefix):].lower().strip()
 
-        handler = getattr(self, 'cmd_%s' % command, None)
-        if not handler:
+        handler = getattr(self, 'cmd_%s' % acommand, None)
+        subhandler = getattr(self, 'cmd_%s' % subcommand, None)
+        if not handler and not subhandler:
             return
 
         if message.channel.is_private:
             if not (message.author.id == self.config.owner_id and command == 'joinserver'):
-                await self.send_message(message.channel, 'You cannot use this bot in private messages.')
+                await self.send_message(message.channel, 'プライベートメッセージでの利用はできません。')
                 return
 
         if message.author.id in self.blacklist and message.author.id != self.config.owner_id:
-            self.safe_print("[User blacklisted] {0.id}/{0.name} ({1})".format(message.author, message_content))
+            self.safe_print("[ブラックリストに登録されたユーザー] {0.id}/{0.name} ({1})".format(message.author, message_content))
             return
 
         else:
-            self.safe_print("[Command] {0.id}/{0.name} ({1})".format(message.author, message_content))
+            self.safe_print("[コマンド] {0.id}/{0.name}が ({1})を実行".format(message.author, message_content))
 
         user_permissions = self.permissions.for_user(message.author)
 
-        argspec = inspect.signature(handler)
+        argspec = inspect.signature(handler or subhandler)
         params = argspec.parameters.copy()
 
         # noinspection PyBroadException
@@ -1901,7 +2214,7 @@ class MusicBot(discord.Client):
                     params.pop(key)
 
             if message.author.id != self.config.owner_id:
-                if user_permissions.command_whitelist and command not in user_permissions.command_whitelist:
+                if user_permissions.command_whitelist and acommand not in user_permissions.command_whitelist and subcommand not in user_permissions.command_whitelist:
                     raise exceptions.PermissionsError(
                         "This command is not enabled for your group (%s)." % user_permissions.name,
                         expire_in=20)
@@ -1928,7 +2241,11 @@ class MusicBot(discord.Client):
                 )
                 return
 
-            response = await handler(**handler_kwargs)
+            if handler == None:
+                response = await subhandler(**handler_kwargs)
+            else:
+                response = await handler(**handler_kwargs)
+
             if response and isinstance(response, Response):
                 content = response.content
                 if response.reply:
@@ -1996,12 +2313,12 @@ class MusicBot(discord.Client):
 
         if sum(1 for m in my_voice_channel.voice_members if m != after.server.me):
             if auto_paused and player.is_paused:
-                print("[config:autopause] Unpausing")
+                print("[自動一時停止機能] 一時停止解除")
                 self.server_specific_data[after.server]['auto_paused'] = False
                 player.resume()
         else:
             if not auto_paused and player.is_playing:
-                print("[config:autopause] Pausing")
+                print("[自動一時停止機能] 一時停止作動")
                 self.server_specific_data[after.server]['auto_paused'] = True
                 player.pause()
 

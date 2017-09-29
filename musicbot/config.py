@@ -59,11 +59,15 @@ class Config:
         self._email = config.get('Credentials', 'Email', fallback=ConfigDefaults.email)
         self._password = config.get('Credentials', 'Password', fallback=ConfigDefaults.password)
         self._login_token = config.get('Credentials', 'Token', fallback=ConfigDefaults.token)
+        self.osuid = config.get('Credentials', 'osu!Id', fallback=ConfigDefaults.osu_id)
+        self.osupassword = config.get('Credentials', 'osu!Password', fallback=ConfigDefaults.osu_password)
+        self.osumdir = config.get('Credentials', 'osu!SongsDirectry', fallback=ConfigDefaults.osumdir)
 
         self.auth = None
 
         self.owner_id = config.get('Permissions', 'OwnerID', fallback=ConfigDefaults.owner_id)
         self.command_prefix = config.get('Chat', 'CommandPrefix', fallback=ConfigDefaults.command_prefix)
+        self.subcommand_prefix = config.get('Chat', 'SubCommandPrefix', fallback=ConfigDefaults.subcommand_prefix)
         self.bound_channels = config.get('Chat', 'BindToChannels', fallback=ConfigDefaults.bound_channels)
         self.autojoin_channels =  config.get('Chat', 'AutojoinChannels', fallback=ConfigDefaults.autojoin_channels)
 
@@ -171,8 +175,13 @@ class ConfigDefaults:
     password = None # This is not where you put your login info, go away.
     token = None    #
 
+    osu_id = None
+    osu_password = None
+    osumdir = None
+
     owner_id = None
     command_prefix = '!'
+    subcommand_prefix = '#'
     bound_channels = set()
     autojoin_channels = set()
 
