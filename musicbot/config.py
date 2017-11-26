@@ -62,6 +62,7 @@ class Config:
         self.osuid = config.get('Credentials', 'osu!Id', fallback=ConfigDefaults.osu_id)
         self.osupassword = config.get('Credentials', 'osu!Password', fallback=ConfigDefaults.osu_password)
         self.osumdir = config.get('Credentials', 'osu!SongsDirectry', fallback=ConfigDefaults.osumdir)
+        self.osukey = config.get('Credentials', 'osu!APIKey', fallback=ConfigDefaults.osukey)
 
         self.auth = None
 
@@ -178,6 +179,7 @@ class ConfigDefaults:
     osu_id = None
     osu_password = None
     osumdir = None
+    osukey = None
 
     owner_id = None
     command_prefix = '!'

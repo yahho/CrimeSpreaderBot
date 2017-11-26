@@ -5,6 +5,7 @@ from mutagen.mp4 import MP4
 from mutagen import oggvorbis
 from mutagen import flac
 import asyncio
+#import functools
 import os
 import sys
 import traceback
@@ -21,6 +22,8 @@ from .entry import URLPlaylistEntry
 from .exceptions import ExtractionError, WrongEntryTypeError
 from .lib.event_emitter import EventEmitter
 from .config import Config, ConfigDefaults
+#from concurrent.futures import ThreadPoolExecutor
+from .downloader import Downloader
 
 
 class Playlist(EventEmitter):
@@ -40,6 +43,7 @@ class Playlist(EventEmitter):
         self.sess = None
         self.osumdir = self.config.osumdir
         self.osulogon = False
+        self.osudl = Downloader
 
     def __iter__(self):
         return iter(self.entries)
@@ -302,7 +306,7 @@ class Playlist(EventEmitter):
         files_dir = [f for f in files if os.path.isdir(os.path.join(self.osumdir, f))]
         return files_dir
 
-    async def download(self, osz_id):
+    async def sDL(self, osz_id):
         if not self.osulogon:
             self.login()
             self.osulogon = True
@@ -318,13 +322,41 @@ class Playlist(EventEmitter):
                 print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
                 return os.path.join(self.osumdir, fname.split(".")[0])
             else:
-                with open(fname, 'wb') as file:
-                    for chunk in dres.iter_content(chunk_size=16384):
-                        if chunk:
-                            file.write(chunk)
-                            file.flush()
-                    file.close()
-                    return fname
+                await self.osudl.osuDown(fname, dres)
+                return
+        else:
+            self.login()
+            dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+            raw_url = dres.history[0].headers['Location']
+            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            print("ファイル名：{}".format(fname))
+            osuapl = []
+            osuapl.append(self.osu_apl())
+            if fname.split(".")[0] in self.osu_apl():
+                print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
+                return os.path.join(self.osumdir, fname.split(".")[0])
+            else:
+                await self.osudl.osuDown(fname, dres)
+                return
+
+    async def download(self, osz_id, **meta):
+        if not self.osulogon:
+            self.login()
+            self.osulogon = True
+        dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+        if dres.headers['Content-Type'] == 'application/download':
+            print(dres.headers)
+            raw_url = dres.history[0].headers['Location']
+            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            print("ファイル名：{}".format(fname))
+            osuapl = []
+            osuapl.append(self.osu_apl())
+            if fname.split(".")[0] in self.osu_apl():
+                print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
+                return os.path.join(self.osumdir, fname.split(".")[0])
+            else:
+                await self.osudl.osuDown(self.downloader, osz_id, fname=fname, dres=dres, **meta)
+                return 
         else:
             self.login()
             dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
@@ -338,7 +370,7 @@ class Playlist(EventEmitter):
                 return os.path.join(self.osumdir, fname.split(".")[0])
             else:
                 with open(fname, 'wb') as file:
-                    for chunk in dres.iter_content(chunk_size=16384):
+                    for chunk in dres.iter_content(chunk_size=56*1024):
                         if chunk:
                             file.write(chunk)
                             file.flush()
@@ -425,13 +457,13 @@ class Playlist(EventEmitter):
             dsongdir = os.path.join(self.osumdir, songdir)
             title, music_filename, duration, osz_idd = await self.detecter(dsongdir)
         else:
-            osz = await self.download(osz_id)
+            osz = await self.download(osz_id, **meta)
             print(osz)
             if osz.endswith(".osz"):
                 omdir = self.config.osumdir
                 namedir = osz.split(".")[0]
-                print("ディレクトリ：{}\\{}".format(omdir, namedir))
-                print("Windowsのディレクトリ（テスト。os.environ.get('windir')の結果が出る）：{}".format(os.environ.get('windir')))
+                #print("ディレクトリ：{}\\{}".format(omdir, namedir))
+                #print("Windowsのディレクトリ（テスト。os.environ.get('windir')の結果が出る）：{}".format(os.environ.get('windir')))
                 dcdir = os.path.join(omdir, namedir)
                 os.mkdir(dcdir)
                 await self.unzip(osz, dcdir)
@@ -440,9 +472,9 @@ class Playlist(EventEmitter):
                 songdir = osz
                 title, music_filename, duration, _ = await self.detecter(songdir)
         
-        print("サニタイズ（完全文字列化）前：{}".format(music_filename))
+        #print("サニタイズ（完全文字列化）前：{}".format(music_filename))
         audio_filename = self.sanitize_path(music_filename)
-        print("サニタイズ後：{}".format(audio_filename))
+        #print("サニタイズ後：{}".format(audio_filename))
         if not osz_id and osz_idd:
             print("検出されたoszのID：{}".format(osz_idd))
             entry = URLPlaylistEntry(
@@ -477,4 +509,28 @@ class Playlist(EventEmitter):
                 entry.get_ready_future()
 
             return entry, len(self.entries)
+
+#    async def add_entry_raw(self, on_error=None, retry_on_error=False, osz_id = None, songdir = None, **meta):
+#        if callable(on_error):
+#            try:
+#                osu = await self.loop.run_in_executor(self.downloader.thread_pool, functools.partial(self.add_entry_osu, osz_id=osz_id, songdir=songdir, **meta))
+#                self.loop.run_until_complete(osu)
+
+#            except Exception as e:
+
+#                # Hmm...
+#                # I hope I don't have to deal with ContentTooShortError's
+#                if asyncio.iscoroutinefunction(on_error):
+#                    asyncio.ensure_future(on_error(e), loop=self.loop)
+
+#                elif asyncio.iscoroutine(on_error):
+#                    asyncio.ensure_future(on_error, loop=self.loop)
+
+#                else:
+#                    self.loop.call_soon_threadsafe(on_error, e)
+
+#                if retry_on_error:
+#                    print("ダ↑メ↑みたいですねぇ")
+#        else:
+#            return await self.loop.run_in_executor(self.thread_pool, functools.partial(self.add_entry_osu, osz_id=osz_id, songdir=songdir, **meta))
 

@@ -247,11 +247,12 @@ class MusicPlayer(EventEmitter):
 
                 # In-case there was a player, kill it. RIP.
                 self._kill_current_player()
+                print("entry.filename：{}".format(entry.filename))
 
                 self._current_player = self._monkeypatch_player(self.voice_client.create_ffmpeg_player(
                     entry.filename,
                     before_options="-nostdin",
-                    options="-vn -b:a 320k",
+                    options="-vn -b:a 480k -af dynaudnorm=f=100:p=0.953:m=27",
                     # Threadsafe call soon, b/c after will be called from the voice playback thread.
                     after=lambda: self.loop.call_soon_threadsafe(self._playback_finished)
                 ))

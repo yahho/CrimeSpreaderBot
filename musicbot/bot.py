@@ -24,6 +24,7 @@ from textwrap import dedent
 from datetime import timedelta
 from random import choice, shuffle
 from collections import defaultdict
+from osuapi import OsuApi, ReqConnector
 
 from musicbot.playlist import Playlist
 from musicbot.player import MusicPlayer
@@ -80,7 +81,7 @@ class MusicBot(discord.Client):
 
         self.blacklist = set(load_file(self.config.blacklist_file))
         self.autoplaylist = load_file(self.config.auto_playlist_file)
-        self.downloader = downloader.Downloader(download_folder='audio_cache')
+        self.downloader = downloader.Downloader(self, download_folder='audio_cache')
 
         self.exit_signal = None
         self.init_ok = False
@@ -90,6 +91,8 @@ class MusicBot(discord.Client):
         self.osuplaylist = None
         self.osumdir = None
         self.osulogon = False
+        self.osuapi = OsuApi(self.config.osukey, connector=ReqConnector())
+        self.busymsg = None
 
         if not self.autoplaylist:
             print("Warning: Autoplaylist is empty, disabling.")
@@ -1000,35 +1003,16 @@ class MusicBot(discord.Client):
         """
         return await self.cmd_osuモード(message=message, channel=channel, author=author, leftover_args=leftover_args)
 
-    async def cmd_登録(self, player, channel, author, permissions, leftover_args, song_url):
-        """
-        使い方:
-            {command_prefix}登録 URL
-            {command_prefix}登録 検索ワード
-        """
-        
-        song_url = song_url.strip('<>')
+    #async def ext_futu(futu):
+    #    futu.result()
 
-        if permissions.max_songs and player.playlist.count_for_user(author) >= permissions.max_songs:
-            raise exceptions.PermissionsError(
-                "栗目大杉なので弾かれましたよ。上限: (%s)" % permissions.max_songs, expire_in=30
-            )
-
-        await self.send_typing(channel)
-
-        if song_url.startswith('https://osu.ppy.sh/'):
-            if song_url.startswith('https://osu.ppy.sh/b/'):
-                raise exceptions.CommandError("譜面単体のリンクは未対応です。譜面セットのリンクを指定して下さい。", expire_in=30)
-#            if not self.osulogon:
-#                player.playlist.login()
-#                self.osulogon = True
-
-            osz_id = song_url[21:len(song_url)]
-            busymsg = await self.safe_send_message(channel, "[**試験機能**]osu!譜面セットのリンク：**{}** の処理を開始しました:arrows_counterclockwise:\nこの処理は時間がかかるためBotの接続が一時的に切断されます。".format(song_url))
-#            try:
+    async def fin_add_entry(osz_id, *args, **meta):
+        if futu.exception():
+            await self.safe_send_message(channel, "内部エラーが発生しました。該当する栗目は再生されません。")
+            return
+        else:
+            #osz_id , *args, **meta = futu.result()
             entry, position = await player.playlist.add_entry_raw(osz_id=osz_id, channel=channel, author=author)
-#            except:
-#                raise exceptions.CommandError("なんか栗目したかも", expire_in=30)
             await self.safe_delete_message(busymsg)
             reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
             btext = entry.title
@@ -1047,6 +1031,61 @@ class MusicBot(discord.Client):
 
                 reply = reply_text.format(btext, position, time_until)
             return Response(reply, delete_after=30)
+
+    async def cmd_登録(self, player, channel, author, permissions, leftover_args, song_url):
+        """
+        使い方:
+            {command_prefix}登録 URL
+            {command_prefix}登録 検索ワード
+        """
+        
+        song_url = song_url.strip('<>')
+
+        if permissions.max_songs and player.playlist.count_for_user(author) >= permissions.max_songs:
+            raise exceptions.PermissionsError(
+                "栗目大杉なので弾かれましたよ。上限: (%s)" % permissions.max_songs, expire_in=30
+            )
+
+        await self.send_typing(channel)
+
+        if song_url.startswith('https://osu.ppy.sh/'):
+            if song_url.startswith('https://osu.ppy.sh/b/'):
+                bid = song_url[21:len(song_url)]
+                binfo = self.osuapi.get_beatmaps(beatmap_id=bid)
+                osz_idi = binfo[0].beatmapset_id
+                osz_id = str(osz_idi)
+                #raise exceptions.CommandError("譜面単体のリンクは未対応です。譜面セットのリンクを指定して下さい。", expire_in=30)
+#            if not self.osulogon:
+#                player.playlist.login()
+#                self.osulogon = True
+
+            elif song_url.startswith('https://osu.ppy.sh/s/') or song_url.startswith('https://osu.ppy.sh/d/'):
+                osz_id = song_url[21:len(song_url)]
+            self.busymsg = await self.safe_send_message(channel, "[**試験機能**]osu!譜面セットのリンク：**{}** の処理を開始しました:arrows_counterclockwise:\nこの処理は時間がかかるためBotの接続が一時的に切断されます。".format(song_url))
+            
+#            try:
+            await player.playlist.add_entry_raw(osz_id=osz_id, channel=channel, author=author)
+            return
+#            except:
+#                raise exceptions.CommandError("なんか栗目したかも", expire_in=30)
+            #await self.safe_delete_message(busymsg)
+            #reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
+            #btext = entry.title
+
+            #if position == 1 and player.is_stopped:
+            #    position = ':white_check_mark:すぐに再生されるよ！'
+            #    reply = reply_text.format(btext, position)
+
+            #else:
+            #    try:
+            #        time_until = await player.playlist.estimate_time_until(position, player)
+            #        reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<:passive:347538399600836608>'
+            #    except:
+            #        traceback.print_exc()
+            #        time_until = ''
+
+            #    reply = reply_text.format(btext, position, time_until)
+            #return Response(reply, delete_after=30)
         else:
             if leftover_args:
                 song_url = ' '.join([song_url, *leftover_args])
@@ -2110,7 +2149,7 @@ class MusicBot(discord.Client):
         """
         return await self.cmd_切断(server=server)
 
-    async def cmd_再起(channel):
+    async def cmd_再起(self, channel):
         await self.safe_send_message(channel, ":wave:")
         await self.disconnect_all_voice_clients()
         raise exceptions.RestartSignal
