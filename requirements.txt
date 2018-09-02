@@ -3,5 +3,4 @@ websockets == 3.3
 youtube_dl
 pip
 requests
-mad
 cffi>=1.6.0; sys_platform == 'win32'

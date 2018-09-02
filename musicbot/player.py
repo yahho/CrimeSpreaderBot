@@ -247,7 +247,7 @@ class MusicPlayer(EventEmitter):
 
                 # In-case there was a player, kill it. RIP.
                 self._kill_current_player()
-                print("entry.filename：{}".format(entry.filename))
+                #print("entry.filename：{}".format(entry.filename))
 
                 self._current_player = self._monkeypatch_player(self.voice_client.create_ffmpeg_player(
                     entry.filename,

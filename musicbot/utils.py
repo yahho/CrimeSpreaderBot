@@ -2,6 +2,8 @@ import re
 import aiohttp
 import decimal
 import unicodedata
+import subprocess
+import shlex
 
 from hashlib import md5
 from .constants import DISCORD_MSG_CHAR_LIMIT
@@ -103,3 +105,9 @@ def md5sum(filename, limit=0):
         for chunk in iter(lambda: f.read(8192), b""):
             fhash.update(chunk)
     return fhash.hexdigest()[-limit:]
+
+def calc_dur_ffprobe(filename):
+    cmdstr="ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\"" % filename
+
+    p=subprocess.Popen(shlex.split(cmdstr), stdout=subprocess.PIPE)
+    return p.communicate()[0]

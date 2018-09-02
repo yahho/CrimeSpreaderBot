@@ -8,3 +8,10 @@ dectalk/
 discord.log
 config/options.ini
 config/permissions.ini
+ffmpeg-shared/
+File_not_found.txt
+/*.osz
+/musicbot/bot_old.py
+/config/options - コピー.ini
+/config/options1.ini
+permissions2.ini

@@ -1,9 +1,5 @@
 import datetime
 import traceback
-from mutagen.mp3 import MP3
-from mutagen.mp4 import MP4
-from mutagen import oggvorbis
-from mutagen import flac
 import asyncio
 #import functools
 import os
@@ -17,7 +13,7 @@ from collections import deque
 from itertools import islice
 from random import shuffle
 
-from .utils import get_header
+from .utils import get_header, calc_dur_ffprobe
 from .entry import URLPlaylistEntry
 from .exceptions import ExtractionError, WrongEntryTypeError
 from .lib.event_emitter import EventEmitter
@@ -298,6 +294,18 @@ class Playlist(EventEmitter):
 
         return datetime.timedelta(seconds=estimated_time)
 
+    def estimate_time_until_notasync(self, position, player):
+        """
+            (very) Roughly estimates the time till the queue will 'position'
+        """
+        estimated_time = sum([e.duration for e in islice(self.entries, position - 1)])
+
+        # When the player plays a song, it eats the first playlist item, so we just have to add the time back
+        if not player.is_stopped and player.current_entry:
+            estimated_time += player.current_entry.duration - player.progress
+
+        return datetime.timedelta(seconds=estimated_time)
+
     def count_for_user(self, user):
         return sum(1 for e in self.entries if e.meta.get('author', None) == user)
 
@@ -433,21 +441,14 @@ class Playlist(EventEmitter):
         if UTit:
             Tit = UTit
         AudioFname = os.path.join(songdir, AFn)
-        if AudioFname.endswith(".mp3") or AudioFname.endswith(".MP3"):
-            af = MP3(AudioFname)
-        elif AudioFname.endswith(".ogg") or AudioFname.endswith(".OGG"):
-            af = oggvorbis.OggVorbis(AudioFname)
-        elif AudioFname.endswith(".m4a") or AudioFname.endswith(".M4A"):
-            af = MP4(AudioFname)
-        elif AudioFname.endswith(".flac") or AudioFname.endswith(".FLAC"):
-            af = flac.FLAC(AudioFname)
-        else:
-            af = None
+        if not AudioFname:
+            AudioFname = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "File_not_found.wav")
+        af = float(calc_dur_ffprobe(AudioFname))
         if af:
-            dur = round(af.info.length, 0)
+            dur = af
         else:
-            dur = 0
-        duration = int(dur)
+            dur = 0.0
+        duration = dur
         dosz_idd = os.path.dirname(songdir)
         dosz_ids = songdir.replace(dosz_idd, '').split(' ')[0]
         dosz_id = dosz_ids.replace('\\', '')
@@ -478,7 +479,7 @@ class Playlist(EventEmitter):
         if not osz_id and not songdir:
             print("[osu!譜面レジスタ]レジストにはIDまたはディレクトリの指定が必要です。処理は中断します。")
         elif not osz_id:
-            print("ローカル実行")
+            print("[osu!譜面レジスタ]譜面フォルダ選出による実行")
             dsongdir = os.path.join(self.osumdir, songdir)
             title, music_filename, duration, osz_idd = self.detecter(dsongdir, bidhash=bidhash)
         else:

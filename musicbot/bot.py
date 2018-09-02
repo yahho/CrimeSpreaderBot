@@ -463,7 +463,7 @@ class MusicBot(discord.Client):
 #            osu_apli.append(self.osu_apl())
             while self.osu_apl():
                 songdir = choice(self.osu_apl())
-                print(songdir)
+                print("選出されたフォルダ: %s" % songdir)
                 await player.playlist.add_entry_raw(osz_id=None, songdir=songdir)
                 
                 break
@@ -1011,25 +1011,25 @@ class MusicBot(discord.Client):
         #    await self.safe_send_message(channel, "内部エラーが発生しました。該当する栗目は再生されません。")
         #    return
         #else:
-        #entry, position = player.playlist.add_entry_osu(osz_id=osz_id, channel=channel, author=author)
-        #reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
-        #btext = entry.title
+        entry, position = player.playlist.add_entry_osu(osz_id=osz_id, channel=channel, author=author)
+        reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
+        btext = entry.title
 
-        #if position == 1 and player.is_stopped:
-            #position = ':white_check_mark:すぐに再生されるよ！'
-            #reply = reply_text.format(btext, position)
+        if position == 1 and player.is_stopped:
+            position = ':white_check_mark:すぐに再生されるよ！'
+            reply = reply_text.format(btext, position)
 
-        #else:
-            #try:
-                #time_until = player.playlist.estimate_time_until(position, player)
-                #reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<:passive:347538399600836608>'
-            #except:
-                #traceback.print_exc()
-                #time_until = ''
+        else:
+            try:
+                time_until = player.playlist.estimate_time_until_notasync(position, player)
+                reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<:passive:347538399600836608>'
+            except:
+                traceback.print_exc()
+                time_until = ''
 
-            #reply = reply_text.format(btext, position, time_until)
-        #return Response(reply, delete_after=30)
-        return print('展開完了しました')
+            reply = reply_text.format(btext, position, time_until)
+        return Response(reply, delete_after=30)
+        #return print('展開完了しました')
 
     async def cmd_登録(self, player, channel, author, permissions, leftover_args, song_url):
         """
