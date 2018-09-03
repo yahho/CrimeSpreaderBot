@@ -441,7 +441,7 @@ class Playlist(EventEmitter):
         if UTit:
             Tit = UTit
         AudioFname = os.path.join(songdir, AFn)
-        if not AudioFname:
+        if not os.path.exists(AudioFname):
             AudioFname = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "File_not_found.wav")
         af = float(calc_dur_ffprobe(AudioFname))
         if af:
