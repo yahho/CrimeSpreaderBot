@@ -6,6 +6,8 @@ import zipfile
 
 from concurrent.futures import ThreadPoolExecutor
 from .config import Config, ConfigDefaults
+from .entry import OsuLocalPlaylistEntry
+#from .bot import Response
 
 ytdl_format_options = {
     'format': 'bestaudio/best',
@@ -44,7 +46,7 @@ class Downloader:
         self.safe_ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
         self.safe_ytdl.params['ignoreerrors'] = True
         self.download_folder = download_folder
-        self.osuDLloop = asyncio.get_event_loop()
+        #self.osuDLloop = asyncio.get_event_loop()
         self.config = Config(config_file)
 
         if download_folder:
@@ -91,30 +93,71 @@ class Downloader:
     async def safe_extract_info(self, loop, *args, **kwargs):
         return await loop.run_in_executor(self.thread_pool, functools.partial(self.safe_ytdl.extract_info, *args, **kwargs))
 
-    def osuDL(self, osz_id, fname, dres, busymsg, player, **meta):
+    def osuDL(self, playlist, osz_id, fname, dres, busymsg, player, bidhash, **meta):
         with open(fname, 'wb') as file:
             for chunk in dres.iter_content(chunk_size=64 * 1024):
                 if chunk:
                     file.write(chunk)
                     #file.flush()
             file.close()
-        print("Download complete!")
+        print("ダウンロード完了!")
         dcdir = os.path.join(self.config.osumdir, os.path.splitext(fname)[0])
         os.mkdir(dcdir)
         with zipfile.ZipFile(fname, 'r') as zip_file:
             zip_file.extractall(path=dcdir)
         os.remove(fname)
         print (meta.items())
-        ch = meta['channel']
-        at = meta['author']
-        return self.bot.fin_add_entry(player, osz_id, busymsg, ch, at)
+        #ch = meta['channel']
+        #at = meta['author']
+        title, music_filename, duration, _ = playlist.detecter(dcdir, bidhash=bidhash)
+        audio_filename = playlist.sanitize_path(music_filename)
+        entrypack = []
+        if bidhash:
+            entry = OsuLocalPlaylistEntry(
+                playlist,
+                "https://osu.ppy.sh/s/" + osz_id,
+                "https://osu.ppy.sh/beatmapsets/{}#{}/{}".format(osz_id, bidhash[2], bidhash[0]),
+                "[osu!譜面]" + title,
+                duration,
+                filename=audio_filename,
+                **meta
+            )
+            playlist.entries.append(entry)
+            playlist.emit('entry-added', playlist=playlist, entry=entry)
 
-    async def osuDown(self, osz_id, fname, dres, busymsg=None, player=None, **meta):
+            if playlist.peek() is entry:
+                entry.get_ready_future()
+            entrypack.append((entry, len(playlist.entries)))
+        else:
+            entry = OsuLocalPlaylistEntry(
+                playlist,
+                "https://osu.ppy.sh/s/" + osz_id,
+                "https://osu.ppy.sh/beatmapsets/{}".format(osz_id),
+                "[osu!譜面]" + title,
+                duration,
+                filename=audio_filename,
+                **meta
+            )
+            playlist.entries.append(entry)
+            playlist.emit('entry-added', playlist=playlist, entry=entry)
+
+            if playlist.peek() is entry:
+                entry.get_ready_future()
+            entrypack.append((entry, len(playlist.entries)))
+        #reply_text = " osu!譜面：**{}**をプレイリストに追加しました。~~多分~~"
+        #btext = entrypack[0][0].title
+
+        #reply = reply_text.format(btext)
+        #self.bot.safe_send_message(ch, reply, expire_in=15, also_delete=busymsg)
+        #self.bot.fin_add_entry(player, osz_id, busymsg, ch, at)
+        return entrypack[0]
+
+    async def osuDown(self, playlist, osz_id, fname, dres, busymsg=None, player=None, bidhash=None, **meta):
         #try:
-        await self.osuDLloop.run_in_executor(self.thread_pool, functools.partial(self.osuDL, osz_id, fname, dres, busymsg=busymsg, player=player, **meta))
+        
         #await self.bot.fin_add_entry(id, msg, ch, at)
         #self.osuDLloop.run_forever()
-        return
+        return await self.bot.loop.run_in_executor(self.thread_pool, functools.partial(self.osuDL, playlist, osz_id, fname, dres, busymsg=busymsg, player=player, bidhash=bidhash, **meta))
 
         #except Exception as e:
 

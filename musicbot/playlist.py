@@ -14,7 +14,7 @@ from itertools import islice
 from random import shuffle
 
 from .utils import get_header, calc_dur_ffprobe
-from .entry import URLPlaylistEntry
+from .entry import URLPlaylistEntry, OsuLocalPlaylistEntry
 from .exceptions import ExtractionError, WrongEntryTypeError
 from .lib.event_emitter import EventEmitter
 from .config import Config, ConfigDefaults
@@ -314,48 +314,57 @@ class Playlist(EventEmitter):
         files_dir = [f for f in files if os.path.isdir(os.path.join(self.osumdir, f))]
         return files_dir
 
-    async def sDL(self, osz_id):
-        if not self.osulogon:
-            self.login()
-            self.osulogon = True
-        dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
-        if dres.headers['Content-Type'] == 'application/download':
-            print(dres.headers)
-            raw_url = dres.history[0].headers['Location']
-            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
-            print("ファイル名：{}".format(fname))
-            osuapl = []
-            osuapl.append(self.osu_apl())
-            if fname.split(".")[0] in self.osu_apl():
-                print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
-                return os.path.join(self.osumdir, fname.split(".")[0])
-            else:
-                await self.osudl.osuDown(fname, dres)
-                return
+    def chk_beatmapset_found(self, osz_id):
+        beatmapsetlist=os.listdir(self.osumdir)
+        detected_beatmapset=[d for d in beatmapsetlist if d.startswith("{} ".format(osz_id)) and os.path.isdir(os.path.join(self.osumdir, d))]
+        if len(detected_beatmapset)==0:
+            return False
         else:
-            self.login()
-            dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
-            raw_url = dres.history[0].headers['Location']
-            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
-            print("ファイル名：{}".format(fname))
-            osuapl = []
-            osuapl.append(self.osu_apl())
-            if os.path.splitext(fname)[0] in self.osu_apl():
-                print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
-                return os.path.join(self.osumdir, os.path.splitext(fname)[0])
-            else:
-                await self.osudl.osuDown(fname, dres)
-                return
+            return os.path.join(self.osumdir, detected_beatmapset[0])
 
-    async def download(self, osz_id, busymsg=None, player=None, **meta):
+    #async def sDL(self, osz_id):
+        #if not self.osulogon:
+            #self.login()
+            #self.osulogon = True
+        #dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+        #if dres.headers['Content-Type'] == 'application/download':
+            #print(dres.headers)
+            #raw_url = dres.history[0].headers['Location']
+            #fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            #print("ファイル名：{}".format(fname))
+            #osuapl = []
+            #osuapl.append(self.osu_apl())
+            #if fname.split(".")[0] in self.osu_apl():
+                #print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
+                #return os.path.join(self.osumdir, fname.split(".")[0])
+            #else:
+                #await self.osudl.osuDown(fname, dres)
+                #return
+        #else:
+            #self.login()
+            #dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+            #raw_url = dres.history[0].headers['Location']
+            #fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            #print("ファイル名：{}".format(fname))
+            #osuapl = []
+            #osuapl.append(self.osu_apl())
+            #if os.path.splitext(fname)[0] in self.osu_apl():
+                #print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
+                #return os.path.join(self.osumdir, os.path.splitext(fname)[0])
+            #else:
+                #await self.osudl.osuDown(fname, dres)
+                #return
+
+    async def download(self, osz_id, busymsg=None, player=None, bidhash=None, **meta):
         if not self.osulogon:
             self.login()
+            time.sleep(4)
             self.osulogon = True
         dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
         if dres.headers['Content-Type'] == 'application/download':
             print(dres.headers)
-            raw_url = dres.history[0].headers['Location']
-            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            #raw_url = dres.history[0].headers['Location']
+            fname = dres.headers['Content-Disposition'][21:-2].replace("\\", "")
             print("ファイル名：{}".format(fname))
             osuapl = []
             osuapl.append(self.osu_apl())
@@ -364,27 +373,27 @@ class Playlist(EventEmitter):
                 return os.path.join(self.osumdir, os.path.splitext(fname)[0])
             else:
                 print (meta.items())
-                await self.osudl.osuDown(self.downloader, osz_id, fname=fname, dres=dres, busymsg=busymsg, player=player, **meta)
-                return
+                return await self.osudl.osuDown(self.downloader,self, osz_id, fname=fname, dres=dres, busymsg=busymsg, player=player, bidhash=bidhash, **meta)
         else:
-            self.login()
-            dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
-            raw_url = dres.history[0].headers['Location']
-            fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
-            print("ファイル名：{}".format(fname))
-            osuapl = []
-            osuapl.append(self.osu_apl())
-            if fname.split(".")[0] in self.osu_apl():
-                print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
-                return os.path.join(self.osumdir, os.path.splitext(fname)[0])
-            else:
-                with open(fname, 'wb') as file:
-                    for chunk in dres.iter_content(chunk_size=56*1024):
-                        if chunk:
-                            file.write(chunk)
-                            file.flush()
-                    file.close()
-                    return fname
+            self.osulogon=False
+            return await self.download(osz_id, busymsg=busymsg, bidhash=bidhash, **meta)
+            #dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+            #raw_url = dres.history[0].headers['Location']
+            #fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
+            #print("ファイル名：{}".format(fname))
+            #osuapl = []
+            #osuapl.append(self.osu_apl())
+            #if fname.split(".")[0] in self.osu_apl():
+                #print ("[osu!譜面ダウンローダー]もうあるみたいだよ？")
+                #return os.path.join(self.osumdir, os.path.splitext(fname)[0])
+            #else:
+                #with open(fname, 'wb') as file:
+                    #for chunk in dres.iter_content(chunk_size=56*1024):
+                        #if chunk:
+                            #file.write(chunk)
+                            #file.flush()
+                    #file.close()
+                    #return fname
 
     async def unzip(self, osz, dcdir):
         with zipfile.ZipFile(osz, 'r') as zip_file:
@@ -452,7 +461,7 @@ class Playlist(EventEmitter):
         dosz_idd = os.path.dirname(songdir)
         dosz_ids = songdir.replace(dosz_idd, '').split(' ')[0]
         dosz_id = dosz_ids.replace('\\', '')
-        print("検出ID：{}".format(dosz_id))
+        #print("検出ID：{}".format(dosz_id))
         return Tit, AudioFname, duration, dosz_id
 
     def remove_start(self, s, start):
@@ -484,35 +493,36 @@ class Playlist(EventEmitter):
             title, music_filename, duration, osz_idd = self.detecter(dsongdir, bidhash=bidhash)
         else:
             print(meta)
-            osz = await self.download(osz_id, busymsg=busymsg, player=player, **meta)
-            if not osz:
-                return
+            if not self.chk_beatmapset_found(osz_id):
+                return await self.download(osz_id, busymsg=busymsg, player=player,bidhash=bidhash, **meta)
             else:
-                print(osz)
-                if osz.endswith(".osz"):
-                    omdir = self.config.osumdir
-                    namedir = osz.split(".")[0]
+                songdir=self.chk_beatmapset_found(osz_id)
+                title, music_filename, duration, _ = self.detecter(songdir, bidhash=bidhash)
+                #if osz.endswith(".osz"):
+                    #omdir = self.config.osumdir
+                    #namedir = osz.split(".")[0]
                     #print("ディレクトリ：{}\\{}".format(omdir, namedir))
                     #print("Windowsのディレクトリ（テスト。os.environ.get('windir')の結果が出る）：{}".format(os.environ.get('windir')))
-                    dcdir = os.path.join(omdir, namedir)
-                    os.mkdir(dcdir)
-                    await self.unzip(osz, dcdir)
-                    title, music_filename, duration, _ = self.detecter(dcdir, bidhash=bidhash)
-                else:
-                    songdir = osz
-                    title, music_filename, duration, _ = self.detecter(songdir, bidhash=bidhash)
+                    #dcdir = os.path.join(omdir, namedir)
+                    #os.mkdir(dcdir)
+                    #await self.unzip(osz, dcdir)
+                    #title, music_filename, duration, _ = self.detecter(dcdir, bidhash=bidhash)
+                #else:
+                    #songdir = osz
+                    #title, music_filename, duration, _ = self.detecter(songdir, bidhash=bidhash)
         
         #print("サニタイズ（完全文字列化）前：{}".format(music_filename))
         audio_filename = self.sanitize_path(music_filename)
         #print("サニタイズ後：{}".format(audio_filename))
         if not osz_id and osz_idd:
             print("検出されたoszのID：{}".format(osz_idd))
-            entry = URLPlaylistEntry(
+            entry = OsuLocalPlaylistEntry(
                 self,
                 "https://osu.ppy.sh/s/" + osz_idd,
+                "https://osu.ppy.sh/beatmapsets/{}".format(osz_idd),
                 "[osu!譜面]" + title,
                 duration,
-                expected_filename=audio_filename,
+                filename=audio_filename,
                 **meta
             )
             self.entries.append(entry)
@@ -524,21 +534,40 @@ class Playlist(EventEmitter):
         
         elif osz_id:
             print("指定されたoszのID：{}".format(osz_id))
-            entry = URLPlaylistEntry(
-                self,
-                "https://osu.ppy.sh/s/" + osz_id,
-                "[osu!譜面]" + title,
-                duration,
-                expected_filename=audio_filename,
-                **meta
-            )
-            self.entries.append(entry)
-            self.emit('entry-added', playlist=self, entry=entry)
+            if bidhash:
+                entry = OsuLocalPlaylistEntry(
+                    self,
+                    "https://osu.ppy.sh/s/" + osz_id,
+                    "https://osu.ppy.sh/beatmapsets/{}#{}/{}".format(osz_id, bidhash[2], bidhash[0]),
+                    "[osu!譜面]" + title,
+                    duration,
+                    filename=audio_filename,
+                    **meta
+                )
+                self.entries.append(entry)
+                self.emit('entry-added', playlist=self, entry=entry)
 
-            if self.peek() is entry:
-                entry.get_ready_future()
+                if self.peek() is entry:
+                    entry.get_ready_future()
 
-            return entry, len(self.entries)
+                return entry, len(self.entries)
+            else:
+                entry = OsuLocalPlaylistEntry(
+                    self,
+                    "https://osu.ppy.sh/s/" + osz_id,
+                    "https://osu.ppy.sh/beatmapsets/{}".format(osz_id),
+                    "[osu!譜面]" + title,
+                    duration,
+                    filename=audio_filename,
+                    **meta
+                )
+                self.entries.append(entry)
+                self.emit('entry-added', playlist=self, entry=entry)
+
+                if self.peek() is entry:
+                    entry.get_ready_future()
+
+                return entry, len(self.entries)
 
     def chk_name(self, osz_id=None,  busymsg=None, **meta):
         dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
@@ -569,13 +598,13 @@ class Playlist(EventEmitter):
                 print ("Error!:not correctry downloaded!")
                 return
 
-    def add_entry_osu(self, osz_id=None,  busymsg=None, **meta):
-        osz = self.chk_name(osz_id, busymsg=busymsg, **meta)
-        if not osz:
-            return
-        else:
-            print(osz)
-            if osz.endswith(".osz"):
+    #def add_entry_osu(self, osz_id=None,  busymsg=None, **meta):
+        #osz = self.chk_name(osz_id, busymsg=busymsg, **meta)
+        #if not osz:
+            #return
+        #else:
+            #print(osz)
+            #if osz.endswith(".osz"):
                 #omdir = self.config.osumdir
                 #namedir = osz.split(".")[0]
                 #print("ディレクトリ：{}\\{}".format(omdir, namedir))
@@ -584,45 +613,45 @@ class Playlist(EventEmitter):
                 #os.mkdir(dcdir)
                 #await self.unzip(osz, dcdir)
                 #title, music_filename, duration, _ = self.detecter(dcdir)
-                print ("Invalid!")
-                return
-            else:
-                songdir = osz
-                title, music_filename, duration, _ = self.detecter(songdir)
-        if not osz_id and osz_idd:
-            print("検出されたoszのID：{}".format(osz_idd))
-            entry = URLPlaylistEntry(
-                self,
-                "https://osu.ppy.sh/s/" + osz_idd,
-                "[osu!譜面]" + title,
-                duration,
-                expected_filename=audio_filename,
-                **meta
-            )
-            self.entries.append(entry)
-            self.emit('entry-added', playlist=self, entry=entry)
+                #print ("Invalid!")
+                #return
+            #else:
+                #songdir = osz
+                #title, music_filename, duration, _ = self.detecter(songdir)
+        #if not osz_id and osz_idd:
+            #print("検出されたoszのID：{}".format(osz_idd))
+            #entry = URLPlaylistEntry(
+                #self,
+                #"https://osu.ppy.sh/s/" + osz_idd,
+                #"[osu!譜面]" + title,
+                #duration,
+                #expected_filename=audio_filename,
+                #**meta
+            #)
+            #self.entries.append(entry)
+            #self.emit('entry-added', playlist=self, entry=entry)
 
-            if self.peek() is entry:
-                entry.get_ready_future()
-            return entry, len(self.entries)
+            #if self.peek() is entry:
+                #entry.get_ready_future()
+            #return entry, len(self.entries)
         
-        elif osz_id:
-            print("指定されたoszのID：{}".format(osz_id))
-            entry = URLPlaylistEntry(
-                self,
-                "https://osu.ppy.sh/s/" + osz_id,
-                "[osu!譜面]" + title,
-                duration,
-                expected_filename=audio_filename,
-                **meta
-            )
-            self.entries.append(entry)
-            self.emit('entry-added', playlist=self, entry=entry)
+        #elif osz_id:
+            #print("指定されたoszのID：{}".format(osz_id))
+            #entry = URLPlaylistEntry(
+                #self,
+                #"https://osu.ppy.sh/s/" + osz_id,
+                #"[osu!譜面]" + title,
+                #duration,
+                #expected_filename=audio_filename,
+                #**meta
+            #)
+            #self.entries.append(entry)
+            #self.emit('entry-added', playlist=self, entry=entry)
 
-            if self.peek() is entry:
-                entry.get_ready_future()
+            #if self.peek() is entry:
+                #entry.get_ready_future()
 
-            return entry, len(self.entries)
+            #return entry, len(self.entries)
 
 #    async def add_entry_raw(self, on_error=None, retry_on_error=False, osz_id = None, songdir = None, **meta):
 #        if callable(on_error):
@@ -647,4 +676,3 @@ class Playlist(EventEmitter):
 #                    print("ダ↑メ↑みたいですねぇ")
 #        else:
 #            return await self.loop.run_in_executor(self.thread_pool, functools.partial(self.add_entry_osu, osz_id=osz_id, songdir=songdir, **meta))
-

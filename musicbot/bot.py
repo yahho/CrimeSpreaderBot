@@ -99,7 +99,7 @@ class MusicBot(discord.Client):
             self.config.auto_playlist = False
 
         # TODO: Do these properly
-        ssd_defaults = {'last_np_msg': None, 'auto_paused': False}
+        ssd_defaults = {'last_np_msg': None, 'auto_paused': False, 'stats_emb_msg': None}
         self.server_specific_data = defaultdict(lambda: dict(ssd_defaults))
 
         super().__init__()
@@ -477,11 +477,13 @@ class MusicBot(discord.Client):
 
     async def update_now_playing(self, entry=None, is_paused=False):
         game = discord.Game(name="ちょっとまってね・・・")
+        status = discord.Status.do_not_disturb
 
         if self.user.bot:
             activeplayers = sum(1 for p in self.players.values() if p.is_playing)
             if activeplayers > 1:
                 game = discord.Game(name="現在、%s々所のサーバーで栗目" % activeplayers)
+                status = discord.Status.online
                 entry = None
 
             elif activeplayers == 1:
@@ -493,8 +495,9 @@ class MusicBot(discord.Client):
 
             name = u'{}{}'.format(prefix, entry.title)[:128]
             game = discord.Game(name=name)
+            status = discord.Status.idle if is_paused else discord.Status.online
 
-        await self.change_presence(game=game)
+        await self.change_presence(game=game, status=status)
 
 
     async def safe_send_message(self, dest, content, *, tts=False, expire_in=0, also_delete=None, quiet=False):
@@ -735,7 +738,7 @@ class MusicBot(discord.Client):
             await self._autojoin_channels(autojoin_channels)
 
         elif self.config.auto_summon:
-            print("オーナーが参加中のボイスチャットに自動参加しています・・・", flush=True)
+            print("オーナーが参加中のボイスチャンネルに自動参加しています・・・", flush=True)
 
             # waitfor + get value
             owner_vc = await self._auto_summon()
@@ -746,7 +749,7 @@ class MusicBot(discord.Client):
                     print("自動プレイリスト再生を開始します。。。")
                     await self.on_player_finished_playing(await self.get_player(owner_vc))
             else:
-                print("オーナーが参加中のボイスチャンネルはありませんでした、自動参加に失敗しました。")
+                print("オーナーが参加中のボイスチャンネルはありませんでした。自動参加に失敗しました。")
 
         print()
         # t-t-th-th-that's all folks!
@@ -933,7 +936,7 @@ class MusicBot(discord.Client):
         return await self.cmd_オート変更(message=message, channel=channel, author=author, leftover_args=leftover_args)
 
 
-    async def cmd_osuリログ(self, message, channel, author):
+    async def cmd_osuリログ(self, player, message, channel, author):
         """
         使い方:
             <プレフィックス>osuリログ
@@ -980,22 +983,33 @@ class MusicBot(discord.Client):
             else:
                 return Response("不正な引数です。", delete_after=30)
 
-    async def cmd_ステータス(self, player, message, channel, author, leftover_args):
+    async def cmd_ステータス(self, player, message, channel, server, author, leftover_args):
+        if self.server_specific_data[server]['stats_emb_msg']:
+            await self.safe_delete_message(self.server_specific_data[server]['stats_emb_msg'])
+            self.server_specific_data[server]['stats_emb_msg'] = None
         embed = discord.Embed(title="ステータス", description="現在の栗目拡散器の状態はこの通りです。\nこの表示は開発中です。", color=0xdec049)
         embed.set_author(name="yahho's 栗目拡散器", url='https://github.com/yahho/CrimeSpreaderBot', icon_url='https://cdn.discordapp.com/emojis/332181988633083925.png')
         embed.add_field(name="ギルド別設定", value="開発中", inline=False)
         embed.add_field(name="osu!譜面自動再生プレイリスト", value=["❌無効", "✅有効"][self.osumode], inline=True)
         embed.add_field(name="自動再生プレイリスト", value=["❌無効", "✅有効"][self.config.auto_playlist], inline=True)
         embed.add_field(name="音量", value=str(player.volume*100)+"%", inline=True)
-        embed.add_field(name="現在再生中の項目", value=[player.current_entry.title+"\n詳細はnpで", "何も再生していません。バグジョンの可能性もあります。"][len(player.current_entry.title)==0], inline=False)
+        embed.add_field(name="現在再生中の項目", value=["[{}]({})\n詳細はnpで".format(player.current_entry.title, player.current_entry.url), "何も再生していません。バグジョンの可能性もあります。"][len(player.current_entry.title)==0], inline=False)
         embed.set_footer(text="再生が止ったときは再起させてみよう")
-        return await self.send_message(message.channel, embed=embed)
+        self.server_specific_data[server]['stats_emb_msg'] = await self.send_message(message.channel, embed=embed)
+        await self._manual_delete_check(message)
+        return 
 
-    async def cmd_osurelogin(self, message, channel, author):
+    async def cmd_stats(self, player, message, channel, server, author, leftover_args):
         """
         コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
         """
-        return await self.cmd_osuリログ(message=message, channel=channel, author=author)
+        return await self.cmd_ステータス(player=player, message=message, channel=channel, server=server, author=author, leftover_args=leftover_args)
+
+    async def cmd_osurelogin(self, player, message, channel, author):
+        """
+        コマンドのオリジナル互換用ラッパエントリ。栗目ボットの日本語コマンドが使いづらい人用。
+        """
+        return await self.cmd_osuリログ(player=player, message=message, channel=channel, author=author)
 
     async def cmd_osumode(self, message, channel, author, leftover_args):
         """
@@ -1031,7 +1045,7 @@ class MusicBot(discord.Client):
         return Response(reply, delete_after=30)
         #return print('展開完了しました')
 
-    async def cmd_登録(self, player, channel, author, permissions, leftover_args, song_url):
+    async def cmd_登録(self, player, channel, author, permissions, song_url, leftover_args):
         """
         使い方:
             {command_prefix}登録 URL
@@ -1052,7 +1066,10 @@ class MusicBot(discord.Client):
                 bid = song_url[21:len(song_url)]
                 binfo = self.osuapi.get_beatmaps(beatmap_id=bid)
                 bmhash = binfo[0].file_md5
-                bidhash = [bid, bmhash]
+                bmode = binfo[0].mode.name
+                if bmode=="ctb":
+                    bmode="fruits"
+                bidhash = [bid, bmhash, bmode]
                 osz_idi = binfo[0].beatmapset_id
                 osz_id = str(osz_idi)
                 #raise exceptions.CommandError("譜面単体のリンクは未対応です。譜面セットのリンクを指定して下さい。", expire_in=30)
@@ -1065,11 +1082,14 @@ class MusicBot(discord.Client):
                     osz_id = song_url[31:len(song_url)]
                     bidhash = None
                 else:
-                    osz_id = song_url[31:idEnd-1]
+                    osz_id = song_url[31:idEnd]
                     bid = song_url.split('/')[-1]
                     binfo = self.osuapi.get_beatmaps(beatmap_id=bid)
                     bmhash = binfo[0].file_md5
-                    bidhash = [bid, bmhash]
+                    bmode = binfo[0].mode.name
+                    if bmode=="ctb":
+                        bmode="fruits"
+                    bidhash = [bid, bmhash, bmode]
             
             elif song_url.startswith('https://osu.ppy.sh/s/') or song_url.startswith('https://osu.ppy.sh/d/'):
                 osz_id = song_url[21:len(song_url)]
@@ -1077,28 +1097,28 @@ class MusicBot(discord.Client):
             busymsg = await self.safe_send_message(channel, "[**試験機能**]osu!譜面セットのリンク：**{}** の処理を開始しました:arrows_counterclockwise:\nこの処理は開発、修正中のためBotの接続が一時的に切断されるかもしれません。".format(song_url), expire_in=30)
             
 #            try:
-            await player.playlist.add_entry_raw(osz_id=osz_id, bidhash=bidhash, channel=channel, author=author, busymsg=busymsg, player=None)
-            return
+            entry, position = await player.playlist.add_entry_raw(osz_id=osz_id, bidhash=bidhash, channel=channel, author=author, busymsg=busymsg, player=None)
+            #return
 #            except:
 #                raise exceptions.CommandError("なんか栗目したかも", expire_in=30)
-            #await self.safe_delete_message(busymsg)
-            #reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。  このosu!譜面セットは: {}"
-            #btext = entry.title
+            await self.safe_delete_message(busymsg)
+            reply_text = " osu!譜面セット：**{}**をプレイリストに追加しました。\nこのosu!譜面セットは: #⃣`{}`"
+            btext = entry.title
 
-            #if position == 1 and player.is_stopped:
-            #    position = ':white_check_mark:すぐに再生されるよ！'
-            #    reply = reply_text.format(btext, position)
+            if position == 1 and player.is_stopped:
+                position = ':white_check_mark:すぐに再生されるよ！'
+                reply = reply_text.format(btext, position)
 
-            #else:
-            #    try:
-            #        time_until = await player.playlist.estimate_time_until(position, player)
-            #        reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<:passive:347538399600836608>'
-            #    except:
-            #        traceback.print_exc()
-            #        time_until = ''
+            else:
+                try:
+                    time_until = await player.playlist.estimate_time_until(position, player)
+                    reply_text += 'あと{}:alarm_clock:栗目後に再生が始まるゾ<a:headhamg:419611990839787531>'
+                except:
+                    traceback.print_exc()
+                    time_until = ''
 
-            #    reply = reply_text.format(btext, position, time_until)
-            #return Response(reply, delete_after=30)
+                reply = reply_text.format(btext, position, time_until)
+            return Response(reply, delete_after=30)
         else:
             if leftover_args:
                 song_url = ' '.join([song_url, *leftover_args])
@@ -1337,7 +1357,7 @@ class MusicBot(discord.Client):
                         pass
 
             if drop_count:
-                print("Dropped %s songs" % drop_count)
+                print("%s個の栗目が失敗" % drop_count)
 
             if player.current_entry and player.current_entry.duration > permissions.max_song_length:
                 await self.safe_delete_message(self.server_specific_data[channel.server]['last_np_msg'])
@@ -1371,7 +1391,7 @@ class MusicBot(discord.Client):
 
             raise exceptions.CommandError(basetext, expire_in=30)
 
-        return Response("<:zakuro:310053103338651648>誰だ<:trump:245811283373326336>{}個も:chestnut: :eye: を入れたクライミストは<:nubesco:257184784344809473>！！お陰で{}秒もかかっちまったじゃねえか<:gaito88:257807307533058049>マジ<:ginnan:284978139350827009>".format(
+        return Response("<:zakuro:310053103338651648>誰だ<:KNHG:500338115659956247>{}個も<:crime:332181988633083925>を入れたクライミストは<:nubesco:257184784344809473>！！お陰で{}秒もかかっちまったじゃねえか<:MG8853:314051642737688578>マジ<:ginnan:284978139350827009>".format(
             songs_added, self._fixg(ttime, 1)), delete_after=30)
 
     async def cmd_search(self, player, channel, author, permissions, leftover_args):
@@ -1529,17 +1549,17 @@ class MusicBot(discord.Client):
             else:
                 np_text = "再生中:projector:： **%s** :alarm_clock:%s\n" % (player.current_entry.title, prog_str)
 
-            ourl = player.current_entry.url
-            if ourl.startswith("http://osu.ppy.sh/s/"):
-                np_textn = "{}譜面のURL：{}".format(np_text, ourl)
+            cent = player.current_entry
+            if player.current_entry.type.value=='osu':
+                np_textn = "{}譜面のURL：{}".format(np_text, cent.newurl)
             else:
-                np_textn = "{}栗目のURL：{}".format(np_text, ourl)
+                np_textn = "{}栗目のURL：{}".format(np_text, cent.url)
 
             self.server_specific_data[server]['last_np_msg'] = await self.safe_send_message(channel, np_textn)
             await self._manual_delete_check(message)
         else:
             return Response(
-                'キューに何もありません。{}登録で栗目を追加できます。'.format(self.config.command_prefix),
+                'キューに何もありません。{}登録で栗目や譜面を追加できます。'.format(self.config.command_prefix),
                 delete_after=30
             )
 
@@ -1831,9 +1851,9 @@ class MusicBot(discord.Client):
 
         for i, item in enumerate(player.playlist, 1):
             if item.meta.get('channel', False) and item.meta.get('author', False):
-                nextline = ':hash:`{}` :film_frames:**{}**  :u7533:**{}**'.format(i, item.title, item.meta['author'].name).strip()
+                nextline = ':hash:`{}` {}**{}**  :u7533:**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type=='osu'], item.title, item.meta['author'].name).strip()
             else:
-                nextline = ':hash:`{}` :film_frames:**{}**'.format(i, item.title).strip()
+                nextline = ':hash:`{}` {}**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type=='osu'], item.title).strip()
 
             currentlinesum = sum(len(x) + 1 for x in lines)  # +1 is for newline char
 
