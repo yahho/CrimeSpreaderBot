@@ -36,25 +36,30 @@ class Playlist(EventEmitter):
         self.entries = deque()
         self.osz_url = "https://osu.ppy.sh/d/"
         self.config = Config(config_file)
-        self.sess = None
+        self.sess = requests.sessions.Session()
         self.osumdir = self.config.osumdir
         self.osulogon = False
         self.osudl = Downloader
+        self.osuloginTry = 0
 
     def __iter__(self):
         return iter(self.entries)
 
-    def login(self):
-        sess = requests.session()
+    def login(self, redto=None):
         params = {
             'username': '%s' % self.config.osuid,
             'password': '%s' % self.config.osupassword,
+            'redirect': '%s' % redto if redto else 'index.php',
             'sid': '',
             'login': 'Login'
         }
-        res = sess.post('https://osu.ppy.sh/forum/ucp.php?mode=login', data=params)
+        self.sess
+        res = self.sess.post('https://osu.ppy.sh/forum/ucp.php?mode=login', data=params)
+        self.osuloginTry+=1
         print ("[osu!にログイン] サーバーからの応答（ステータスコード）：%s" % res.status_code)
-        self.sess = sess
+        if self.osuloginTry==3:
+            res.raise_for_status()
+        return res
 
     def shuffle(self):
         shuffle(self.entries)
@@ -358,7 +363,7 @@ class Playlist(EventEmitter):
     async def download(self, osz_id, busymsg=None, player=None, bidhash=None, **meta):
         if not self.osulogon:
             self.login()
-            time.sleep(4)
+            time.sleep(2)
             self.osulogon = True
         dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
         if dres.headers['Content-Type'] == 'application/download':

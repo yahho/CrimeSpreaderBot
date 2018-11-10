@@ -271,7 +271,7 @@ class MusicBot(discord.Client):
                 try:
                     print("接続を確立しています・・・")
                     await asyncio.wait_for(voice_client.connect(), timeout=10, loop=self.loop)
-                    print("接続を確立しました。.")
+                    print("接続を確立しました。")
                     break
                 except:
                     traceback.print_exc()
@@ -318,7 +318,7 @@ class MusicBot(discord.Client):
         try:
             await vc.disconnect()
         except:
-            print("Error disconnecting during reconnect")
+            print("再接続中にエラーが発生しました。")
             traceback.print_exc()
 
         await asyncio.sleep(0.1)
@@ -410,7 +410,7 @@ class MusicBot(discord.Client):
                     break  # This is probably redundant
 
             if self.config.now_playing_mentions:
-                newmsg = 'Hey %s. 追加した曲の **%s** が %sで絶賛垂れ流し中ですよ!:nubesco:' % (
+                newmsg = 'ヘイ %s！ あんたが追加した曲の **%s** が %sで絶賛垂れ流し中だぞ!<a:TOP:468757542101712897>' % (
                     entry.meta['author'].mention, entry.title, player.voice_client.channel.name)
             else:
                 newmsg = '%sで再生中:projector: : **%s**' % (
@@ -438,7 +438,7 @@ class MusicBot(discord.Client):
 
                 if not info:
                     self.autoplaylist.remove(song_url)
-                    self.safe_print("[Info] Removing unplayable song from autoplaylist: %s" % song_url)
+                    self.safe_print("[情報] 再生不可能なこの栗目を削除します: %s" % song_url)
                     write_file(self.config.auto_playlist_file, self.autoplaylist)
                     continue
 
@@ -626,7 +626,7 @@ class MusicBot(discord.Client):
             vc.main_ws = self.ws
 
     async def on_ready(self):
-        print('\rログイン完了！  Musicbot v%s\n' % BOTVERSION)
+        print('\rログイン完了！  栗目拡散器 ヴァージョン：%s\n' % BOTVERSION)
 
         if self.config.owner_id == self.user.id:
             raise exceptions.HelpfulError(
@@ -775,7 +775,7 @@ class MusicBot(discord.Client):
                     delete_after=60
                 )
             else:
-                return Response("そんなコマンドあったっけ<:gaito88:257807307533058049>", delete_after=10)
+                return Response("そんなコマンドあったっけ<:MG8853:314051642737688578>", delete_after=10)
 
         else:
             helpmsg = "**コマンド一覧**\n"
@@ -1589,9 +1589,9 @@ class MusicBot(discord.Client):
         chperms = author.voice_channel.permissions_for(author.voice_channel.server.me)
 
         if not chperms.connect:
-            self.safe_print("Cannot join channel \"%s\", no permission." % author.voice_channel.name)
+            self.safe_print("\"%s\"に参加できません。 権限がありません。" % author.voice_channel.name)
             return Response(
-                "```Cannot join channel \"%s\", no permission.```" % author.voice_channel.name,
+                "```\"%s\"に参加できません。 権限がありません。```" % author.voice_channel.name,
                 delete_after=25
             )
 
@@ -1666,13 +1666,29 @@ class MusicBot(discord.Client):
 
         player.playlist.shuffle()
 
-        cards = [':spades:',':clubs:',':hearts:',':diamonds:']
-        hand = await self.send_message(channel, ' '.join(cards))
+        cards = ['<a:kame_writing:490900204321505281>',
+            '<a:sjcl_quake6:457852092456108039>',
+            '<a:superhamg:455201493478277130>',
+            '<:kaede:468435329570045972>',
+            '<:kasu:310074677248786432>',
+            '<:koishinium:363321804187500544>',
+            '<:hide:339052624886104064>',
+            '<:tn:450233329653121034>',
+            '<a:manjispin:455218489406259200>']
+        hand = await self.send_message(channel, '{0[0]}\n{0[1]}\n{0[2]}'.format(
+            [''.join(cards.copy()[0:3]),
+            ''.join(cards.copy()[3:6]),
+            ''.join(cards.copy()[6:])]
+            ))
         await asyncio.sleep(0.6)
 
         for x in range(4):
             shuffle(cards)
-            await self.safe_edit_message(hand, ' '.join(cards))
+            await self.safe_edit_message(hand, '{0[0]}\n{0[1]}\n{0[2]}'.format(
+                [''.join(cards.copy()[0:3]),
+                ''.join(cards.copy()[3:6]),
+                ''.join(cards.copy()[6:])]
+                ))
             await asyncio.sleep(0.6)
 
         await self.safe_delete_message(hand, quiet=True)
@@ -1717,7 +1733,7 @@ class MusicBot(discord.Client):
             if player.playlist.peek():
                 if player.playlist.peek()._is_downloading:
                     # print(player.playlist.peek()._waiting_futures[0].__dict__)
-                    return Response("The next song (%s) is downloading, please wait." % player.playlist.peek().title)
+                    return Response("次の栗目 (%s) はダウンロード中です。 もう少々お待ち下さい。" % player.playlist.peek().title)
 
                 elif player.playlist.peek().is_downloaded:
                     print("The next song will be played shortly.  Please wait.")
@@ -1851,9 +1867,9 @@ class MusicBot(discord.Client):
 
         for i, item in enumerate(player.playlist, 1):
             if item.meta.get('channel', False) and item.meta.get('author', False):
-                nextline = ':hash:`{}` {}**{}**  :u7533:**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type=='osu'], item.title, item.meta['author'].name).strip()
+                nextline = ':hash:`{}` {}**{}**  :u7533:**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type.value=='osu'], item.title, item.meta['author'].name).strip()
             else:
-                nextline = ':hash:`{}` {}**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type=='osu'], item.title).strip()
+                nextline = ':hash:`{}` {}**{}**'.format(i, [":film_frames:", "<:osu:245831611050885121>"][item.type.value=='osu'], item.title).strip()
 
             currentlinesum = sum(len(x) + 1 for x in lines)  # +1 is for newline char
 
@@ -1912,7 +1928,7 @@ class MusicBot(discord.Client):
         if self.user.bot:
             if channel.permissions_for(server.me).manage_messages:
                 deleted = await self.purge_from(channel, check=check, limit=search_range, before=message)
-                return Response('Cleaned up {} message{}.'.format(len(deleted), 's' * bool(deleted)), delete_after=15)
+                return Response('{}件のメッセージをお掃除しました。'.format(len(deleted)), delete_after=15)
 
         deleted = 0
         async for entry in self.logs_from(channel, search_range, before=message):
@@ -2121,7 +2137,7 @@ class MusicBot(discord.Client):
         """
 
         if not channel.permissions_for(server.me).change_nickname:
-            raise exceptions.CommandError("Unable to change nickname: no permission.")
+            raise exceptions.CommandError("ニックネームを変更できません: 権限がありません。")
 
         nick = ' '.join([nick, *leftover_args])
 
@@ -2214,7 +2230,7 @@ class MusicBot(discord.Client):
             pass
 
         if message.author == self.user:
-            self.safe_print("Ignoring command from myself (%s)" % message.content)
+            self.safe_print("自身が発信したコマンドメッセージを無視します (%s)" % message.content)
             return
 
         if self.config.bound_channels and message.channel.id not in self.config.bound_channels and not message.channel.is_private:
@@ -2299,18 +2315,18 @@ class MusicBot(discord.Client):
             if message.author.id != self.config.owner_id:
                 if user_permissions.command_whitelist and acommand not in user_permissions.command_whitelist and subcommand not in user_permissions.command_whitelist:
                     raise exceptions.PermissionsError(
-                        "This command is not enabled for your group (%s)." % user_permissions.name,
+                        "このコマンドの実行はあなたが所属するグループに権限が設定されていないため実行できません (%s)." % user_permissions.name,
                         expire_in=20)
 
                 elif user_permissions.command_blacklist and command in user_permissions.command_blacklist:
                     raise exceptions.PermissionsError(
-                        "This command is disabled for your group (%s)." % user_permissions.name,
+                        "このコマンドの実行はあなたが所属するグループが権限を所有していないため実行できません (%s)." % user_permissions.name,
                         expire_in=20)
 
             if params:
                 docs = getattr(handler, '__doc__', None)
                 if not docs:
-                    docs = 'Usage: {}{} {}'.format(
+                    docs = '使用方法: {}{} {}'.format(
                         self.config.command_prefix,
                         command,
                         ' '.join(args_expected)
@@ -2407,7 +2423,7 @@ class MusicBot(discord.Client):
 
     async def on_server_update(self, before:discord.Server, after:discord.Server):
         if before.region != after.region:
-            self.safe_print("[Servers] \"%s\" changed regions: %s -> %s" % (after.name, before.region, after.region))
+            self.safe_print("[サーバー] \"%s\" がリージョンを変更しました: %s -> %s" % (after.name, before.region, after.region))
 
             await self.reconnect_voice_client(after)
 
