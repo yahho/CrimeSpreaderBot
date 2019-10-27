@@ -266,6 +266,7 @@ class OsuLocalPlaylistEntry(BasePlaylistEntry):
         print(data)
         # TODO: version check
         url = data['url']
+        newurl = data['newurl']
         title = data['title']
         duration = data['duration']
         downloaded = data['downloaded']
@@ -287,6 +288,7 @@ class OsuLocalPlaylistEntry(BasePlaylistEntry):
             'version': 1,
             'type': self.__class__.__name__,
             'url': self.url,
+            'newurl': self.newurl,
             'title': self.title,
             'duration': self.duration,
             'downloaded': self.is_downloaded,

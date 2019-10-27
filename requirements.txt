@@ -1,6 +1,8 @@
-discord.py[voice] ~= 0.16.8
-websockets == 3.3
+discord.py[voice] >= 0.16.8
+websockets >= 3.3
 youtube_dl
 pip
 requests
 cffi>=1.6.0; sys_platform == 'win32'
+osuapi
+cfscrape

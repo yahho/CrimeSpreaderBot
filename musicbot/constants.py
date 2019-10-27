@@ -1,6 +1,6 @@
 import os.path
 
-MAIN_VERSION = '1.9.5_3'
+MAIN_VERSION = '1.9.5_4'
 SUB_VERSION = ' ;yahhoEdition_nighty'
 VERSION = MAIN_VERSION + SUB_VERSION
 

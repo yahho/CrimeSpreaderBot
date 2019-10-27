@@ -118,7 +118,7 @@ class Downloader:
                 "https://osu.ppy.sh/s/" + osz_id,
                 "https://osu.ppy.sh/beatmapsets/{}#{}/{}".format(osz_id, bidhash[2], bidhash[0]),
                 "[osu!譜面]" + title,
-                duration,
+                round(duration),
                 filename=audio_filename,
                 **meta
             )
@@ -134,7 +134,7 @@ class Downloader:
                 "https://osu.ppy.sh/s/" + osz_id,
                 "https://osu.ppy.sh/beatmapsets/{}".format(osz_id),
                 "[osu!譜面]" + title,
-                duration,
+                round(duration),
                 filename=audio_filename,
                 **meta
             )

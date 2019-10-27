@@ -2,6 +2,7 @@ import datetime
 import traceback
 import asyncio
 #import functools
+import random
 import os
 import sys
 import requests
@@ -9,6 +10,7 @@ import zipfile
 import re
 import time
 import hashlib
+import cfscrape
 from collections import deque
 from itertools import islice
 from random import shuffle
@@ -36,7 +38,7 @@ class Playlist(EventEmitter):
         self.entries = deque()
         self.osz_url = "https://osu.ppy.sh/d/"
         self.config = Config(config_file)
-        self.sess = requests.sessions.Session()
+        self.sess = cfscrape.create_scraper(delay=random.randint(7,15))
         self.osumdir = self.config.osumdir
         self.osulogon = False
         self.osudl = Downloader
@@ -48,16 +50,17 @@ class Playlist(EventEmitter):
     def login(self, redto=None):
         params = {
             'username': '%s' % self.config.osuid,
-            'password': '%s' % self.config.osupassword,
-            'redirect': '%s' % redto if redto else 'index.php',
-            'sid': '',
-            'login': 'Login'
+            'password': '%s' % self.config.osupassword
+            #'redirect': '%s' % redto if redto else 'index.php',
+            #'sid': '',
+            #'login': 'Login'
         }
-        self.sess
-        res = self.sess.post('https://osu.ppy.sh/forum/ucp.php?mode=login', data=params)
+        self.sess.get('https://osu.ppy.sh/community/forums')
+        params['_token']=self.sess.cookies['XSRF-TOKEN']
+        res = self.sess.post('https://osu.ppy.sh/session', data=params, cookies=self.sess.cookies)
         self.osuloginTry+=1
-        print ("[osu!にログイン] サーバーからの応答（ステータスコード）：%s" % res.status_code)
-        if self.osuloginTry==3:
+        print ("[osu!にログイン] サーバーからの応答：%s ; %s" % (res.status_code,res.headers))
+        if self.osuloginTry>=3:
             res.raise_for_status()
         return res
 
@@ -365,7 +368,7 @@ class Playlist(EventEmitter):
             self.login()
             time.sleep(2)
             self.osulogon = True
-        dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+        dres = self.sess.get("https://osu.ppy.sh/beatmapsets/" + osz_id + "/download", stream=True, cookies=self.sess.cookies)
         if dres.headers['Content-Type'] == 'application/download':
             print(dres.headers)
             #raw_url = dres.history[0].headers['Location']
@@ -526,7 +529,7 @@ class Playlist(EventEmitter):
                 "https://osu.ppy.sh/s/" + osz_idd,
                 "https://osu.ppy.sh/beatmapsets/{}".format(osz_idd),
                 "[osu!譜面]" + title,
-                duration,
+                round(duration),
                 filename=audio_filename,
                 **meta
             )
@@ -545,7 +548,7 @@ class Playlist(EventEmitter):
                     "https://osu.ppy.sh/s/" + osz_id,
                     "https://osu.ppy.sh/beatmapsets/{}#{}/{}".format(osz_id, bidhash[2], bidhash[0]),
                     "[osu!譜面]" + title,
-                    duration,
+                    round(duration),
                     filename=audio_filename,
                     **meta
                 )
@@ -562,7 +565,7 @@ class Playlist(EventEmitter):
                     "https://osu.ppy.sh/s/" + osz_id,
                     "https://osu.ppy.sh/beatmapsets/{}".format(osz_id),
                     "[osu!譜面]" + title,
-                    duration,
+                    round(duration),
                     filename=audio_filename,
                     **meta
                 )
@@ -590,7 +593,7 @@ class Playlist(EventEmitter):
                 return
         else:
             self.login()
-            dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True)
+            dres = self.sess.get("https://osu.ppy.sh/d/" + osz_id, stream=True, cookies=self.sess.cookies)
             raw_url = dres.history[0].headers['Location']
             fname =raw_url[raw_url.find("?fs=")+4:raw_url.find("&fd=")].replace("%20", " ")
             print("ファイル名：{}".format(fname))

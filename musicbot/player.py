@@ -7,16 +7,17 @@ from enum import Enum
 from array import array
 from collections import deque
 from shutil import get_terminal_size
+from discord import AudioSource, FFmpegPCMAudio, PCMVolumeTransformer, AudioSource
 
 from .lib.event_emitter import EventEmitter
 
 
-class PatchedBuff:
+class PatchedBuff(AudioSource):
     """
         PatchedBuff monkey patches a readable object, allowing you to vary what the volume is as the song is playing.
     """
 
-    def __init__(self, buff, *, draw=False):
+    def __init__(self, *, draw=False):
         self.buff = buff
         self.frame_count = 0
         self.volume = 1.0
@@ -85,6 +86,23 @@ class MusicPlayerState(Enum):
     def __str__(self):
         return self.name
 
+class SourcePlaybackCounter(AudioSource):
+    def __init__(self, source, progress = 0):
+        self._source = source
+        self.progress = progress
+
+    def read(self):
+        res = self._source.read()
+        if res:
+            self.progress += 1
+        return res
+
+    def get_progress(self):
+        return self.progress * 0.02
+
+    def cleanup(self):
+        self._source.cleanup()
+
 
 class MusicPlayer(EventEmitter):
     def __init__(self, bot, voice_client, playlist):
@@ -97,7 +115,8 @@ class MusicPlayer(EventEmitter):
         self._volume = bot.config.default_volume
 
         self._play_lock = asyncio.Lock()
-        self._current_player = None
+        self._current_voice_client = None
+        self._snd_source = None
         self._current_entry = None
         self.state = MusicPlayerState.STOPPED
 
@@ -110,32 +129,32 @@ class MusicPlayer(EventEmitter):
     @volume.setter
     def volume(self, value):
         self._volume = value
-        if self._current_player:
-            self._current_player.buff.volume = value
+        if self._snd_source:
+            self._snd_source._source.volume = value
 
     def on_entry_added(self, playlist, entry):
         if self.is_stopped:
             self.loop.call_later(2, self.play)
 
     def skip(self):
-        self._kill_current_player()
+        self._kill_current_voice_client()
 
     def stop(self):
         self.state = MusicPlayerState.STOPPED
-        self._kill_current_player()
+        self._kill_current_voice_client()
 
         self.emit('stop', player=self)
 
     def resume(self):
-        if self.is_paused and self._current_player:
-            self._current_player.resume()
+        if self.is_paused and self._current_voice_client:
+            self._current_voice_client.resume()
             self.state = MusicPlayerState.PLAYING
             self.emit('resume', player=self, entry=self.current_entry)
             return
 
-        if self.is_paused and not self._current_player:
+        if self.is_paused and not self._current_voice_client:
             self.state = MusicPlayerState.PLAYING
-            self._kill_current_player()
+            self._kill_current_voice_client()
             return
 
         raise ValueError('Cannot resume playback from state %s' % self.state)
@@ -144,8 +163,8 @@ class MusicPlayer(EventEmitter):
         if self.is_playing:
             self.state = MusicPlayerState.PAUSED
 
-            if self._current_player:
-                self._current_player.pause()
+            if self._current_voice_client:
+                self._current_voice_client.pause()
 
             self.emit('pause', player=self, entry=self.current_entry)
             return
@@ -159,16 +178,17 @@ class MusicPlayer(EventEmitter):
         self.state = MusicPlayerState.DEAD
         self.playlist.clear()
         self._events.clear()
-        self._kill_current_player()
+        self._kill_current_voice_client()
 
-    def _playback_finished(self):
+    def _playback_finished(self, error=None):
         entry = self._current_entry
 
-        if self._current_player:
-            self._current_player.after = None
-            self._kill_current_player()
+        if self._current_voice_client:
+            self._current_voice_client.after = None
+            self._kill_current_voice_client()
 
         self._current_entry = None
+        self._snd_source = None
 
         if not self.is_stopped and not self.is_dead:
             self.play(_continue=True)
@@ -183,16 +203,16 @@ class MusicPlayer(EventEmitter):
 
         self.emit('finished-playing', player=self, entry=entry)
 
-    def _kill_current_player(self):
-        if self._current_player:
+    def _kill_current_voice_client(self):
+        if self._current_voice_client:
             if self.is_paused:
                 self.resume()
 
             try:
-                self._current_player.stop()
+                self._current_voice_client.stop()
             except OSError:
                 pass
-            self._current_player = None
+            self._current_voice_client = None
             return True
 
         return False
@@ -246,37 +266,46 @@ class MusicPlayer(EventEmitter):
                     return
 
                 # In-case there was a player, kill it. RIP.
-                self._kill_current_player()
+                self._kill_current_voice_client()
                 #print("entry.filename：{}".format(entry.filename))
 
-                self._current_player = self._monkeypatch_player(self.voice_client.create_ffmpeg_player(
-                    entry.filename,
-                    before_options="-nostdin",
-                    options="-vn -af dynaudnorm=f=100:p=0.953:m=27",
-                    # Threadsafe call soon, b/c after will be called from the voice playback thread.
-                    after=lambda: self.loop.call_soon_threadsafe(self._playback_finished)
-                ))
-                self._current_player.setDaemon(True)
-                self._current_player.buff.volume = self.volume
+                self._snd_source = SourcePlaybackCounter(
+                    PCMVolumeTransformer(
+                        FFmpegPCMAudio(
+                            entry.filename,
+                            before_options="-nostdin",
+                            options="-vn -af dynaudnorm=f=100:p=0.953:m=27"
+                            # Threadsafe call soon, b/c after will be called from the voice playback thread.
+                
+                        ),
+                        self.volume
+                    )
+                )
+                self.voice_client.play(self._snd_source, after=self._playback_finished)
+                #self._current_player.setDaemon(True)
+                
+                
+                self._current_voice_client = self.voice_client
+                #self._current_voice_client.source._volume = self.volume
 
                 # I need to add ytdl hooks
                 self.state = MusicPlayerState.PLAYING
                 self._current_entry = entry
 
-                self._current_player.start()
+                #self._current_player.start()
                 self.emit('play', player=self, entry=entry)
 
-    def _monkeypatch_player(self, player):
-        original_buff = player.buff
-        player.buff = PatchedBuff(original_buff)
-        return player
+    def _monkeypatch_player(self, voice_client):
+        original_buff = voice_client.buff
+        voice_client.source = PatchedBuff(original_buff)
+        return voice_client
 
     def reload_voice(self, voice_client):
         self.voice_client = voice_client
-        if self._current_player:
-            self._current_player.player = voice_client.play_audio
-            self._current_player._resumed.clear()
-            self._current_player._connected.set()
+        #if self._current_voice_client:
+            #self._current_voice_client.player = voice_client.play_audio
+            #self._current_player._resumed.clear()
+            #self._current_player._connected.set()
 
     async def websocket_check(self):
         if self.bot.config.debug_mode:
@@ -316,7 +345,8 @@ class MusicPlayer(EventEmitter):
 
     @property
     def progress(self):
-        return round(self._current_player.buff.frame_count * 0.02)
+        if self._snd_source:
+            return round(self._snd_source.get_progress())
         # TODO: Properly implement this
         #       Correct calculation should be bytes_read/192k
         #       192k AKA sampleRate * (bitDepth / 8) * channelCount
